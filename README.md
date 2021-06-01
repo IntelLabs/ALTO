@@ -65,3 +65,6 @@ For getting specific information about the memory access patterns in particular 
 * Jesmin Jahan Tithi (jesmin.jahan.tithi@intel.com)
 * Jeewhan Choi (jeec@uoregon.edu)
 * Yongseok Soh (ysoh@uoregon.edu)
+
+## Licensing
+ALTO is released under the MIT License. Please see the 'LICENSE' file for details.
