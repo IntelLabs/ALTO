@@ -93,7 +93,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
   double wtime_copy_tot = 0.0, wtime_norm_tot = 0.0;
   double wtime_update_tot = 0.0, wtime_fit_tot = 0.0;
 
-  int i_ = 0;   
+  int i_ = max_iters;
   for(int i = 0; i < max_iters; i++) {
     double wtime_it = omp_get_wtime();
     double wtime_mttkrp = 0.0, wtime_pseudoinv = 0.0;
@@ -163,8 +163,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
 
     prev_fit = fit;
   } // for max_iters
-  assert(i_);
-  
+    
   wtime_tot = omp_get_wtime() - wtime_tot;
   printf("Total time (for MTTKRP):\t %.4f s (%.4f s)\n", wtime_tot, wtime_mttkrp_tot);
   printf("Total     MTTKRP    PseudoInv MemCopy   Normalize Update    Fit\n");
