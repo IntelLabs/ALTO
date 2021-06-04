@@ -129,6 +129,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
 
 #ifdef ALT_PEXT
     _at->mode_pos = (int*)AlignedMalloc(nmode * sizeof(int));
+    assert(_at->mode_pos);
 #endif
     
     _at->idx = (LIT*)AlignedMalloc(nnz * sizeof(LIT));
@@ -265,6 +266,7 @@ destroy_alto(AltoTensor<LIT>* at)
     AlignedFree(at->prtn_mask);
     AlignedFree(at->prtn_mode_masks);
 #endif
+    AlignedFree(at);
 }
 
 template <typename LIT>
@@ -338,6 +340,7 @@ destroy_da_mem(AltoTensor<LIT>* at, FType** ofibs, IType rank, int target_mode)
 #else
     unmap_da_mem(at, ofibs, rank, target_mode);
 #endif
+    AlignedFree(ofibs);
 }
 
 template <typename LIT>
@@ -616,7 +619,8 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
     int max_num_bits = 0, min_num_bits = sizeof(IType) * 8;
     
     MPair* mode_bits = (MPair*)AlignedMalloc(nmode * sizeof(MPair));
-    
+    assert(mode_bits);
+
     //Initial mode values.
     for (int n = 0; n < nmode; ++n) {
         int mbits = (sizeof(IType) * 8) - clz(at->dims[n] - 1);
@@ -716,6 +720,8 @@ sort_alto(AltoTensor<LIT>* at)
 {
     IType nnz = at->nnz;
     APair<LIT>* at_pair = (APair<LIT>*)AlignedMalloc(nnz * sizeof(APair<LIT>));
+    assert(at_pair);
+
 
     #pragma omp parallel for
     for (IType i = 0; i < nnz; ++i) {
@@ -863,6 +869,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     printf("ALTO: free_bits = %d\n", free_bits);
     //short int is large enough to support an appropriate number of partitions. 
     short int** out_fibs = (short int**)AlignedMalloc(nmode * sizeof(short int*));
+    assert(out_fibs);
     
     //Setup CR bit masks.
     for (int n = 0; n < nmode; ++n) {
@@ -1166,7 +1173,6 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             for (int n = 0; n < nmode; ++n) {
                 ALTO_MASKS[n] = at->mode_masks[n];
             }
-
             //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
             //assert(row);
             FType row[rank]; //Allocate an auto array of variable size.
