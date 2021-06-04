@@ -15,6 +15,7 @@ void ExportKruskalModel(KruskalModel *M, char *file_path)
         char str[1000];
         sprintf(str, "%s.%d.out", file_path, n);
         FILE *fp = fopen(str, "w");
+        assert(fp);
         fprintf(fp, "matrix\n");
         fprintf(fp, "2\n");
         fprintf(fp, "%llu %llu\n", M->dims[n], M->rank);
@@ -30,6 +31,7 @@ void ExportKruskalModel(KruskalModel *M, char *file_path)
     char str[1000];
     sprintf(str, "%s.lambda.out", file_path);
     FILE* fp = fopen(str, "w");
+    assert(fp);
     fprintf(fp, "vector\n");
     fprintf(fp, "1\n");
     fprintf(fp, "%llu\n", M->rank);

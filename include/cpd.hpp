@@ -93,7 +93,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
   double wtime_copy_tot = 0.0, wtime_norm_tot = 0.0;
   double wtime_update_tot = 0.0, wtime_fit_tot = 0.0;
 
-  int i_;   
+  int i_ = max_iters;
   for(int i = 0; i < max_iters; i++) {
     double wtime_it = omp_get_wtime();
     double wtime_mttkrp = 0.0, wtime_pseudoinv = 0.0;
@@ -163,6 +163,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
 
     prev_fit = fit;
   } // for max_iters
+    
   wtime_tot = omp_get_wtime() - wtime_tot;
   printf("Total time (for MTTKRP):\t %.4f s (%.4f s)\n", wtime_tot, wtime_mttkrp_tot);
   printf("Total     MTTKRP    PseudoInv MemCopy   Normalize Update    Fit\n");
@@ -289,9 +290,11 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
   assert(scratch);
   IType nthreads = omp_get_max_threads();
   FType ** lambda_sp = (FType **) AlignedMalloc(sizeof(FType*) * nthreads);
+  assert(lambda_sp);
   #pragma omp parallel for
   for (IType t = 0; t < nthreads; ++t) {
     lambda_sp[t] = (FType *) AlignedMalloc(sizeof(FType) * rank);
+    assert(lambda_sp[t]);
   }
 
   // set up OpenMP locks
@@ -573,6 +576,7 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
 
   // Do manual transpose for gram matrix so that we use col_major instead of row_major
   double * vals = (double*) AlignedMalloc(sizeof(double) * rank * rank);
+  assert(vals);
 
   #pragma unroll
   for (int i = 0; i < rank; ++i) {

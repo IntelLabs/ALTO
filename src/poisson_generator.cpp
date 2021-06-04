@@ -186,6 +186,7 @@ static void GenerateRandomModel(PoissonGenerator *pg, KruskalModel *M)
     for (IType i = 0; i < rank; i++) {
         tmp += M->lambda[i];
     }
+    assert(tmp);
     tmp = 1.0/tmp;
     for (IType i = 0; i < rank; i++) {
         M->lambda[i] *= tmp;

@@ -179,6 +179,8 @@ void ImportSparseTensor(
 
     // allocate memory to the data structures
     SparseTensor* ten = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));
+    assert(ten);
+
     ten->dims = (IType*) AlignedMalloc(sizeof(IType) * nmodes);
     assert(ten->dims);
     ten->cidx = (IType**) AlignedMalloc(sizeof(IType*) * nmodes);
@@ -204,6 +206,8 @@ void ImportSparseTensor(
     // first read the number of modes
     nmodes = 0;
     fread(&nmodes, sizeof(IType), 1, fp);
+    assert(nmodes <= MAX_NUM_MODES);
+
     // use this information to read the dimensions of the tensor
     IType* dims = (IType*) AlignedMalloc(sizeof(IType) * nmodes);
     assert(dims);
@@ -235,9 +239,11 @@ void ImportSparseTensor(
     *X_ = ten;
   }
 
+  if(dims) {
+    free(dims);
+  }
+  
   fclose(fp);
-
-
 }
 
 void CreateSparseTensor(

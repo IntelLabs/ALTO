@@ -7,6 +7,7 @@
 #include <getopt.h>
 #include <omp.h>
 #include <time.h>
+#include <memory>
 
 #include "poisson_generator.hpp"
 #include "common.hpp"
@@ -94,12 +95,12 @@ int main(int argc, char** argv)
 
 	int max_iters = 10;
 	IType rank = 16;
-	IType* dims = NULL;
+	std::unique_ptr<IType*> dims = NULL;
 	IType nmodes = 0;
 	int target_mode = -1;
-	char* text_file = NULL;
-	char* text_file_out = NULL;
-	char* binary_file = NULL;
+	std::unique_ptr<char *> text_file;
+	std::unique_ptr<char *> text_file_out = NULL;
+	std::unique_ptr<char *> binary_file = NULL;
 	double sparsity = 0.1;
 	double epsilon = 1e-5;
 	int seed = time(NULL);
@@ -117,13 +118,14 @@ int main(int argc, char** argv)
 			PrintVersion(argv[0]);
 			return 0;
 		case 'i':
-			text_file = strdup(optarg);
+			text_file = std::make_unique<char *>(optarg);
+			fprintf(stdout, "Text File: %s.\n", *text_file);
 			break;
 		case 'o':
-			text_file_out = strdup(optarg);
+			text_file_out = std::make_unique<char *>(optarg);
 			break;
 		case 'b':
-			binary_file = strdup(optarg);
+			binary_file = std::make_unique<char *>(optarg);
 			break;
 		case 'r':
 			rank = (IType)atoll(optarg);
@@ -144,7 +146,7 @@ int main(int argc, char** argv)
 			}
 			break;
 		case 'd':
-			if (ParseDimensions(optarg, &nmodes, &dims) != 0) {
+			if (ParseDimensions(optarg, &nmodes, &(*dims)) != 0) {
 				fprintf(stderr, "Invalid -dims: %s.\n", optarg);
 			}
 			break;
@@ -200,7 +202,7 @@ int main(int argc, char** argv)
 	SparseTensor* X = NULL;
 	if (binary_file != NULL) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(binary_file, BINARY_FORMAT, &X);
+		ImportSparseTensor(*binary_file, BINARY_FORMAT, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading binary file", t_read);
@@ -215,7 +217,7 @@ int main(int argc, char** argv)
 	}
 	else if (text_file != NULL) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(text_file, TEXT_FORMAT, &X);
+		ImportSparseTensor(*text_file, TEXT_FORMAT, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading text file", t_read);
@@ -235,7 +237,7 @@ int main(int argc, char** argv)
 	}
 	else {
 		BEGIN_TIMER(&ticks_start);
-		MakeSparseTensor(nmodes, dims, sparsity, rank, &X);
+		MakeSparseTensor(nmodes, *dims, sparsity, rank, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_create);
 		PRINT_TIMER("Creating a new tensor", t_create);
@@ -305,6 +307,7 @@ int main(int argc, char** argv)
 
     // Cleanup
 	DestroySparseTensor(X);
+	DestroyKruskalModel(M);
 	destroy_alto(AT);
 
 	return 0;
@@ -568,12 +571,12 @@ static int ParseDimensions(char* argv, IType* nmodes_, IType** dims_)
 		}
 	}
 
-	char* line = strdup(argv);
+	std::unique_ptr<char *> line = std::make_unique<char *>(argv);
 	char* save_ptr;
 	IType count = 0;
 	IType* dims = (IType*)AlignedMalloc(sizeof(IType) * nmodes);
 	assert(dims != NULL);
-	for (char* str = line; ; str = NULL) {
+	for (char* str = *line; ; str = NULL) {
 		char* subtoken = strtok_r(str, ",", &save_ptr);
 		if (subtoken == NULL) {
 			break;
