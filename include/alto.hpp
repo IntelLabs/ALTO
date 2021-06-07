@@ -295,7 +295,7 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
                     if (fib_reuse > MIN_FIBER_REUSE) {
                         Interval const intvl = at->prtn_intervals[p * nmode + n];
                         IType const mode_fibs = intvl.stop - intvl.start + 1;
-                        num_fibs = MAX(num_fibs, mode_fibs);
+                        num_fibs = std::max(num_fibs, mode_fibs);
                     }
                 }
             }
@@ -359,7 +359,7 @@ unmap_da_mem(AltoTensor<LIT>* at, FType** ofibs, IType rank, int target_mode)
                 if (fib_reuse > MIN_FIBER_REUSE) {
                     Interval const intvl = at->prtn_intervals[p * nmode + n];
                     IType const mode_fibs = intvl.stop - intvl.start + 1;
-                    num_fibs = MAX(num_fibs, mode_fibs);
+                    num_fibs = std::max(num_fibs, mode_fibs);
                 }
             }
         } else {
@@ -575,7 +575,7 @@ setup_alto(AltoTensor<LIT>* at)
     for (int n = 0; n < nmode; ++n) {
         int num_bits = (sizeof(IType) * 8) - clz(at->dims[n] - 1);
         alto_bits_min += num_bits;
-        alto_bits_max = MAX(alto_bits_max, num_bits);
+        alto_bits_max = std::max(alto_bits_max, num_bits);
         printf("num_bits for mode-%d=%d\n", n + 1, num_bits);
 
         for (int i = 0; i < num_bits - 1; ++i) {
@@ -627,8 +627,8 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         mode_bits[n].mode = n;
         mode_bits[n].bits = mbits;
         alto_bits_min += mbits;
-        max_num_bits = MAX(max_num_bits, mbits);
-        min_num_bits = MIN(min_num_bits, mbits);
+        max_num_bits = std::max(max_num_bits, mbits);
+        min_num_bits = std::min(min_num_bits, mbits);
         printf("num_bits for mode-%d=%d\n", n + 1, mbits);
     }
     
@@ -648,7 +648,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
 
     //Assuming we use a power-2 data type for ALTO_idx with a minimum size of a byte
     //int alto_bits = pow(2, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
-    int alto_bits = (int)0x1 << MAX(3, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
+    int alto_bits = (int)0x1 << std::max<int>(3, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
     printf("alto_bits=%d\n", alto_bits);
 
     double alto_storage = 0;
@@ -690,7 +690,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         } while (!done);
         
         assert(level == (max_num_bits+1));
-        assert(shift == (po == MSB_FIRST) ? -1 : alto_bits_min);
+        assert(po == MSB_FIRST ? (shift == -1) : (shift == alto_bits_min));
     }
 
     for (int n = 0; n < nmode; ++n) {
@@ -825,8 +825,8 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
 #else
                 IType mode_idx = pext(alto_idx, ALTO_MASKS[n], at->mode_pos[n]);
 #endif
-                fib[n].start = MIN(fib[n].start, mode_idx);
-                fib[n].stop = MAX(fib[n].stop, mode_idx);
+                fib[n].start = std::min(fib[n].start, mode_idx);
+                fib[n].stop = std::max(fib[n].stop, mode_idx);
             }
         }
 
@@ -849,7 +849,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
                         //no conflict
                     } else {
                         //conflict
-                        printf("%d[%llu %llu] ", i, MAX(intvl.start, myintvl.start), MIN(intvl.stop, myintvl.stop));
+                        printf("%d[%llu %llu] ", i, std::max(intvl.start, myintvl.start), std::min(intvl.stop, myintvl.stop));
                     }
                 }
             }

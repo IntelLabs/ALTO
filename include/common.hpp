@@ -1,6 +1,8 @@
 #ifndef COMMON_HPP_
 #define COMMON_HPP_
 
+#include <algorithm>
+
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -46,8 +48,6 @@ typedef float FType;
 #define SYRK   cblas_ssyrk
 #endif
 
-#define MAX(a,b) (((a)<(b))?(b):(a))
-#define MIN(a,b) (((a)>(b))?(b):(a))
 #define CACHELINE      64
 
 #define ROW 1
@@ -148,8 +148,8 @@ void ParMemcpy(void * const dst, void * const src, size_t const bytes)
     int tid = omp_get_thread_num();
 
     size_t n_per_thread = (bytes + nthreads - 1) / nthreads;
-    size_t n_begin = MIN(n_per_thread * tid, bytes);
-    size_t n_end = MIN(n_begin + n_per_thread, bytes);
+    size_t n_begin = std::min(n_per_thread * tid, bytes);
+    size_t n_end = std::min(n_begin + n_per_thread, bytes);
 
     memcpy((char *)dst + n_begin, (char *)src + n_begin, n_end - n_begin);
   }
@@ -164,8 +164,8 @@ void ParMemset(void * dst, int val, size_t bytes)
     int tid = omp_get_thread_num();
 
     size_t n_per_thread = (bytes + nthreads - 1) / nthreads;
-    size_t n_begin = MIN(n_per_thread * tid, bytes);
-    size_t n_end = MIN(n_begin + n_per_thread, bytes);
+    size_t n_begin = std::min(n_per_thread * tid, bytes);
+    size_t n_end = std::min(n_begin + n_per_thread, bytes);
 
     memset((char *)dst + n_begin, val, n_end - n_begin);
   }

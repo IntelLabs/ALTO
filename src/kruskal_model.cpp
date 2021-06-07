@@ -98,12 +98,12 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
 
     srand(seed);
     for (int n = 0; n < M->mode; n++) {
-        #pragma omp parallel private(seed)
+        #pragma omp parallel
         {
-            seed += omp_get_thread_num();
+            unsigned int local_seed = seed + omp_get_thread_num();
             #pragma omp for simd schedule(static)
             for (IType i = 0; i < M->dims[n] * M->rank; i++) {
-                M->U[n][i] = (FType) rand_r (&seed) / RAND_MAX;
+                M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
             }
         }
     }
@@ -194,21 +194,21 @@ static void inline MatMaxNorm(IType dim, IType rank, FType * vals, FType * lambd
         for(IType i = 0; i < dim; i++) {
             #pragma omp simd
             for(IType j = 0; j < rank; j++) {
-                _lambda[j] = MAX(_lambda[j], vals[i * rank + j]);
+                _lambda[j] = std::max(_lambda[j], vals[i * rank + j]);
             }
         }
 
         // If any entry is less than 1, set it to 1
         #pragma omp simd
         for(IType i = 0; i < rank; i++) {
-            _lambda[i] = MAX(_lambda[i], 1.);
+            _lambda[i] = std::max(_lambda[i], 1.);
         }
 
         #pragma omp for reduction(max: lambda[:rank]) schedule(static)
         for (IType t = 0; t < nthreads; ++t) {
           #pragma omp simd
           for (IType j = 0; j < rank; ++j) {
-              lambda[j] = MAX(lambda[j], scratchpad[t][j]);
+              lambda[j] = std::max(lambda[j], scratchpad[t][j]);
           }
         }
     }
@@ -267,6 +267,7 @@ void DestroyKruskalModel(KruskalModel *M)
     }
     AlignedFree(M->U);
     AlignedFree(M->lambda);
+    AlignedFree(M);
 }
 
 void RedistributeLambda (KruskalModel *M, int n)

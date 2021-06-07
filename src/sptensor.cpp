@@ -12,7 +12,7 @@ void DestroySparseTensor(SparseTensor *X)
 {
     AlignedFree(X->dims);
     AlignedFree(X->vals);
-    for(IType i = 0; i < X->nmodes; i++) {
+    for(int i = 0; i < X->nmodes; i++) {
       AlignedFree(X->cidx[i]);
     }
     AlignedFree(X->cidx);
@@ -20,8 +20,8 @@ void DestroySparseTensor(SparseTensor *X)
 }
 
 void ExportSparseTensor(
-  char* file_path, 
-  FileFormat f, 
+  const char* file_path,
+  FileFormat f,
   SparseTensor *X)
 {
   assert(f == TEXT_FORMAT || f == BINARY_FORMAT);
@@ -61,7 +61,7 @@ void ExportSparseTensor(
     fwrite(&(X->nnz), sizeof(IType), 1, fp);
 
     // write the indices and the values
-    for(IType i = 0; i < X->nmodes; i++) {
+    for(int i = 0; i < X->nmodes; i++) {
       fwrite(X->cidx[i], sizeof(IType), X->nnz, fp);
     }
     fwrite(X->vals, sizeof(FType), X->nnz, fp);
@@ -99,6 +99,7 @@ void read_tns_dims(
 
 
   // Calculate the tensor dimensions
+  assert(nmodes <= MAX_NUM_MODES);
   IType* tmp_dims = (IType*) malloc(sizeof(IType) * nmodes);
   assert(tmp_dims);
   for(IType i = 0; i < nmodes; i++) {
@@ -159,8 +160,8 @@ void read_tns_data(
 
 
 void ImportSparseTensor(
-  char* file_path, 
-  FileFormat f, 
+  const char* file_path,
+  FileFormat f,
   SparseTensor** X_
 )
 {
@@ -242,30 +243,30 @@ void ImportSparseTensor(
   if(dims) {
     free(dims);
   }
-  
+
   fclose(fp);
 }
 
 void CreateSparseTensor(
-  IType nmodes, 
-  IType* dims, 
+  IType nmodes,
+  IType* dims,
   IType nnz,
-  IType* cidx, 
-  FType* vals, 
+  IType* cidx,
+  FType* vals,
   SparseTensor** X_
 )
 {
   assert(nmodes > 0);
   assert(nnz > 0);
   for(IType n = 0; n < nmodes; n++) {
-    assert(dims[n] > 0);    
+    assert(dims[n] > 0);
   }
   for(IType n = 0; n < nmodes; n++) {
     for (IType i = 0; i < nnz; i++) {
       assert(cidx[i * nmodes + n] < dims[n]);
     }
   }
-    
+
   // create tensor
   SparseTensor* X = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));
   assert(X);
@@ -286,7 +287,7 @@ void CreateSparseTensor(
         X->cidx[n][i] = cidx[i * nmodes + n];
     }
   }
-  
+
   X->vals = (FType*) AlignedMalloc(sizeof(FType) * nnz);
   assert(X->vals);
   memcpy(X->vals, vals, sizeof(FType) * nnz);

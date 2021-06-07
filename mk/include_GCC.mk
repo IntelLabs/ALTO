@@ -14,13 +14,10 @@ endif
 
 VERSION  = --version
 ifeq ($(DEBUG), true)
-CFLAGS   = -O0 -static-libasan -O -g -fsanitize=address -fno-omit-frame-pointer -march=native -static -Wall -g -std=c++17 -D _GLIBCXX_PARALLEL 
-CXXFLAGS += $(OPENMP) -DMKL_ILP64 -O0 -static-libasan -O -g -fsanitize=address -fno-omit-frame-pointer -march=native -static -Wall -g -std=c++17 -D _GLIBCXX_PARALLEL 
+CXXFLAGS += $(OPENMP) $(BLASCFLAGS) -O0 -static-libasan -O -g -fsanitize=address -fno-omit-frame-pointer -march=native -mbmi2 -static -Wall -g -std=c++17 -D _GLIBCXX_PARALLEL
 LIBS	 = -static-libasan -O -g -fsanitize=address -fno-omit-frame-pointer -lpthread -lm -ldl $(BLASLIBS)
 else
-CFLAGS   = -O3 -march=native -static -Wall -g -std=c++17 -D _GLIBCXX_PARALLEL 
-#CFLAGS  += -T/opt/FJSVxos/mmm/util/bss-2mb.lds -L/opt/FJSVxos/mmm/lib64 -lmpg
-CXXFLAGS += $(OPENMP) -DMKL_ILP64
+CXXFLAGS += $(OPENMP) $(BLASCFLAGS) -O3 -march=native -static -mbmi2 -g -std=c++17 -D_GLIBCXX_PARALLEL
 LIBS	 = -Wl,--no-as-needed -lpthread -lm -ldl $(BLASLIBS)
 endif
 

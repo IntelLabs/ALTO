@@ -42,7 +42,7 @@
 	exit(-1);							\
 } while (0)
 
-void BenchmarkAlto(SparseTensor* X, IType max_iters, IType rank,
+void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
                    IType seed, int target_mode, int num_partitions);
 
 void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
@@ -50,15 +50,18 @@ void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
 
 void VerifyResult(const char* name, FType* truth, FType* factor, IType size);
 
-static void MakeSparseTensor(IType nmodes, IType* dims, double sparsity,
+static void MakeSparseTensor(int nmodes, IType* dims, double sparsity,
                              IType rank, SparseTensor** X);
 
-static int ParseDimensions(char* argv, IType* nmodes_, IType** dims_);
+static std::vector<IType> ParseDimensions(char* argv, int* nmodes_);
 static void PrintVersion(char* call);
 static void Usage(char* call);
 
 static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X);
+
+#ifdef memtrace
 static long PrintNodeMem(int node, const char* tag);
+#endif
 
 const struct option long_opt[] = {
     {"help",           0, NULL, 'h'},
@@ -86,8 +89,8 @@ int main(int argc, char** argv)
 {
 	// Set up timer
 	InitTSC();
-	uint64_t ticks_start;
-	uint64_t ticks_end;
+	uint64_t ticks_start = 0;
+	uint64_t ticks_end = 0;
 	double t_read = 0.0;
 	double t_write = 0.0;
 	double t_create = 0.0;
@@ -95,12 +98,12 @@ int main(int argc, char** argv)
 
 	int max_iters = 10;
 	IType rank = 16;
-	std::unique_ptr<IType*> dims = NULL;
-	IType nmodes = 0;
+	std::vector<IType> dims;
+	int nmodes = 0;
 	int target_mode = -1;
-	std::unique_ptr<char *> text_file;
-	std::unique_ptr<char *> text_file_out = NULL;
-	std::unique_ptr<char *> binary_file = NULL;
+	std::string text_file;
+	std::string text_file_out;
+	std::string binary_file;
 	double sparsity = 0.1;
 	double epsilon = 1e-5;
 	int seed = time(NULL);
@@ -118,14 +121,13 @@ int main(int argc, char** argv)
 			PrintVersion(argv[0]);
 			return 0;
 		case 'i':
-			text_file = std::make_unique<char *>(optarg);
-			fprintf(stdout, "Text File: %s.\n", *text_file);
+			text_file = std::string(optarg);
 			break;
 		case 'o':
-			text_file_out = std::make_unique<char *>(optarg);
+			text_file_out = std::string(optarg);
 			break;
 		case 'b':
-			binary_file = std::make_unique<char *>(optarg);
+			binary_file = std::string(optarg);
 			break;
 		case 'r':
 			rank = (IType)atoll(optarg);
@@ -146,7 +148,8 @@ int main(int argc, char** argv)
 			}
 			break;
 		case 'd':
-			if (ParseDimensions(optarg, &nmodes, &(*dims)) != 0) {
+			dims = ParseDimensions(optarg, &nmodes);
+                        if (dims.empty()) {
 				fprintf(stderr, "Invalid -dims: %s.\n", optarg);
 			}
 			break;
@@ -200,9 +203,9 @@ int main(int argc, char** argv)
 	pre_n1 = PrintNodeMem(1, "Active:");
 #endif
 	SparseTensor* X = NULL;
-	if (binary_file != NULL) {
+	if (!binary_file.empty()) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(*binary_file, BINARY_FORMAT, &X);
+		ImportSparseTensor(binary_file.c_str(), BINARY_FORMAT, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading binary file", t_read);
@@ -215,9 +218,9 @@ int main(int argc, char** argv)
 			PRINT_TIMER("Writing to text file", t_write);
 		}
 	}
-	else if (text_file != NULL) {
+	else if (!text_file.empty()) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(*text_file, TEXT_FORMAT, &X);
+		ImportSparseTensor(text_file.c_str(), TEXT_FORMAT, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading text file", t_read);
@@ -230,14 +233,14 @@ int main(int argc, char** argv)
 			PRINT_TIMER("Writing to binary file", t_write);
 		}
 	}
-	else if (dims == NULL) {
+	else if (dims.empty()) {
 		fprintf(stderr, "No dims specified... exiting\n");
 		Usage(argv[0]);
 		exit(-1);
 	}
 	else {
 		BEGIN_TIMER(&ticks_start);
-		MakeSparseTensor(nmodes, *dims, sparsity, rank, &X);
+		MakeSparseTensor(nmodes, &dims[0], sparsity, rank, &X);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_create);
 		PRINT_TIMER("Creating a new tensor", t_create);
@@ -291,7 +294,7 @@ int main(int argc, char** argv)
 	ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 	PRINT_TIMER("CPD (COO)", t_cpd);
 
-	ExportKruskalModel(M, text_file_out);*/
+	ExportKruskalModel(M, text_file_out.c_str());*/
 
 	// Convert COO to ALTO
 	AltoTensor<LIType>* AT;
@@ -313,7 +316,7 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-void BenchmarkAlto(SparseTensor* X, IType max_iters, IType rank,
+void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
                    IType seed, int target_mode, int num_partitions)
 {
 	double wtime_s, wtime;
@@ -510,7 +513,7 @@ void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
     DestroySparseTensor(X);
     destroy_alto(AT);
     // ---------------------------------------------------------------- //
-} 
+}
 
 void VerifyResult(const char* name, FType* truth, FType* factor, IType size)
 {
@@ -536,11 +539,11 @@ void VerifyResult(const char* name, FType* truth, FType* factor, IType size)
 	}
 }
 
-static void MakeSparseTensor(IType nmodes, IType* dims, double sparsity,
+static void MakeSparseTensor(int nmodes, IType* dims, double sparsity,
                              IType rank, SparseTensor** X)
 {
 	IType tmp = 1;
-	for (IType m = 0; m < nmodes; m++) {
+	for (int m = 0; m < nmodes; m++) {
 		tmp = tmp * dims[m];
 	}
 	IType nnz_before = (IType)(sparsity * tmp);
@@ -561,42 +564,24 @@ static void MakeSparseTensor(IType nmodes, IType* dims, double sparsity,
 	*X = X_;
 }
 
-static int ParseDimensions(char* argv, IType* nmodes_, IType** dims_)
+static std::vector<IType> ParseDimensions(char* argv, int* nmodes_)
 {
-	size_t len = strlen(argv);
-	IType nmodes = 1;
-	for (size_t i = 0; i < len; i++) {
-		if (argv[i] == ',') {
-			nmodes++;
-		}
+	std::vector<IType> dims;
+	std::string dstr(argv);
+	std::string::size_type pos = 0, end = 0;
+
+	while (end != std::string::npos) {
+		end = dstr.find(',', pos);
+
+                auto count = end == std::string::npos ? end : end - pos;
+		IType d = (IType)stoll(dstr.substr(pos, count));
+		if (d >= 0)
+			dims.push_back(d);
+		pos = end + 1;
 	}
 
-	std::unique_ptr<char *> line = std::make_unique<char *>(argv);
-	char* save_ptr;
-	IType count = 0;
-	IType* dims = (IType*)AlignedMalloc(sizeof(IType) * nmodes);
-	assert(dims != NULL);
-	for (char* str = *line; ; str = NULL) {
-		char* subtoken = strtok_r(str, ",", &save_ptr);
-		if (subtoken == NULL) {
-			break;
-		}
-		else {
-			dims[count] = (IType)atoll(subtoken);
-			if (dims[count] <= 0) {
-				return -1;
-			}
-			count++;
-		}
-	} // for (char *str = line; cnt < mode; str = NULL)
-	if (count != nmodes) {
-		return -1;
-	}
-
-	*dims_ = dims;
-	*nmodes_ = nmodes;
-
-	return 0;
+	*nmodes_ = dims.size();
+	return dims;
 }
 
 static void PrintVersion(char* call)
@@ -629,25 +614,26 @@ static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
 {
 	IType* dims = X->dims;
 	IType nnz = X->nnz;
-	IType nmodes = X->nmodes;
+	int nmodes = X->nmodes;
 
 	IType tmp = 1;
-	for (IType i = 0; i < nmodes; i++) {
+	for (int i = 0; i < nmodes; i++) {
 		tmp *= dims[i];
 	}
 	double sparsity = ((double)nnz) / tmp;
-	fprintf(stderr, "# Modes         = %llu\n", nmodes);
+	fprintf(stderr, "# Modes         = %u\n", nmodes);
 	fprintf(stderr, "Rank            = %llu\n", rank);
 	fprintf(stderr, "Sparsity        = %f\n", sparsity);
 	fprintf(stderr, "Max iters       = %d\n", max_iters);
 	fprintf(stderr, "Dimensions      = [%llu", dims[0]);
-	for (IType i = 1; i < nmodes; i++) {
+	for (int i = 1; i < nmodes; i++) {
 		fprintf(stderr, " X %llu", dims[i]);
 	}
 	fprintf(stderr, "]\n");
 	fprintf(stderr, "NNZ             = %llu\n", nnz);
 }
 
+#ifdef memtrace
 static long PrintNodeMem(int node, const char* tag)
 {
 	// Parse form "Node 0 Active:            43088 kB"
@@ -678,3 +664,4 @@ static long PrintNodeMem(int node, const char* tag)
 
 	return val;
 }
+#endif

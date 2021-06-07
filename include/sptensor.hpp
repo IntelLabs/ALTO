@@ -7,7 +7,7 @@
 
 struct sptensor_struct {
   // number of modes/dimensions in the tensor
-  IType nmodes;
+  int nmodes;
 
   // array that stores the length of each mode 
   IType* dims;
@@ -31,9 +31,9 @@ typedef enum FileFormat_
     BINARY_FORMAT = 1
 } FileFormat;
 
-void ExportSparseTensor(char *file_path, FileFormat f, SparseTensor *X);
+void ExportSparseTensor(const char *file_path, FileFormat f, SparseTensor *X);
 
-void ImportSparseTensor(char *file_path, FileFormat f, SparseTensor **X_);
+void ImportSparseTensor(const char *file_path, FileFormat f, SparseTensor **X_);
 
 void DestroySparseTensor(SparseTensor *X);
 

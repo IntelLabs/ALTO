@@ -50,7 +50,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
   mkl_set_dynamic(1);
 #endif
 
-  IType nmodes = AT->nmode;
+  int nmodes = AT->nmode;
   IType* dims = AT->dims;
   IType rank = M->rank;
 
@@ -100,7 +100,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
     double wtime_copy = 0.0, wtime_norm = 0.0;
     double wtime_update = 0.0, wtime_fit = 0.0;
 
-    for(IType j = 0; j < AT->nmode; j++) {
+    for(int j = 0; j < AT->nmode; j++) {
       double wtime_tmp;
       wtime_tmp = omp_get_wtime();
       ParMemset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
@@ -196,9 +196,6 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, FType** grams, FType* 
   IType nmodes = AT->nmode;
   IType* dims = AT->dims;
 
-  double t_innerprod = 0.0;
-  double t_factorsq = 0.0;
-
   FType* accum = (FType*) AlignedMalloc(sizeof(FType) * rank);
   assert(accum);
   memset(accum, 0, sizeof(FType*) * rank);
@@ -280,7 +277,7 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
   fprintf(stdout, "Running CP-ALS with %d max iterations and %.2e epsilon\n",
           max_iters, epsilon);
 
-  IType nmodes = X->nmodes;
+  int nmodes = X->nmodes;
   IType* dims = X->dims;
   IType rank = M->rank;
 
@@ -299,7 +296,7 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
 
   // set up OpenMP locks
   IType max_mode_len = 0;
-  for(IType i = 0; i < M->mode; i++) {
+  for(int i = 0; i < M->mode; i++) {
     if(max_mode_len < M->dims[i]) {
         max_mode_len = M->dims[i];
     }
@@ -320,7 +317,7 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
   init_grams(&grams, M);
 
   for(int i = 0; i < max_iters; i++) {
-    for(IType j = 0; j < X->nmodes; j++) {
+    for(int j = 0; j < X->nmodes; j++) {
       // MTTKRP
       memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
       mttkrp_par(X, M, j, writelocks);
@@ -464,7 +461,6 @@ double cpd_fit(SparseTensor* X, KruskalModel* M, FType** grams, FType* U_mttkrp)
 void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writelocks)
 {
   IType nmodes = X->nmodes;
-  IType* dims = X->dims;
   IType nnz = X->nnz;
   IType** cidx = X->cidx;
   IType rank = M->rank;
@@ -514,7 +510,7 @@ void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writel
 void mttkrp(SparseTensor* X, KruskalModel* M, IType mode)
 {
   IType nmodes = X->nmodes;
-  IType* dims = X->dims;
+  //IType* dims = X->dims;
   IType nnz = X->nnz;
   IType** cidx = X->cidx;
   IType rank = M->rank;
@@ -579,9 +575,9 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
   assert(vals);
 
   #pragma unroll
-  for (int i = 0; i < rank; ++i) {
+  for (IType i = 0; i < rank; ++i) {
     #pragma omp simd 
-    for (int j = 0; j < rank; ++j) {
+    for (IType j = 0; j < rank; ++j) {
       vals[j * rank + i] = grams[mode][i * rank + j];
     }
   }
@@ -595,7 +591,7 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
   // Try using Cholesky to find the pseudoinvser of V
   // Setup parameters for LAPACK calls
   // convert IType to int
-  const char uplo = 'L';
+  char uplo = 'L';
   lapack_int _rank = (lapack_int)rank;
   lapack_int I = (lapack_int)M->dims[mode];
   lapack_int info;
