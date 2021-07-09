@@ -335,7 +335,13 @@ int main(int argc, char** argv)
 		while(!sst.last_batch()) {
 			SparseTensor * t_batch = sst.next_batch();
 			printf("Batch num: %d, nnz: %d\n", sst._batch_num, t_batch->nnz);
+
+			DestroySparseTensor(t_batch);
 		}
+
+		DestroySparseTensor(X);
+		// DestroyKruskalModel(M);
+		return 0;
 
 	}
 }

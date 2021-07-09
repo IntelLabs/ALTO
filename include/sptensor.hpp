@@ -46,5 +46,6 @@ void CreateSparseTensor(
   SparseTensor** X_
 );
 
+SparseTensor * AllocSparseTensor(const int nnz, const int nmodes);
 
 #endif // SPTENSOR_HPP_

@@ -101,12 +101,19 @@ SparseTensor * StreamingSparseTensor::next_batch() {
     // Make sure we don't have empty batches
     assert(nnz > 0);
 
-    SparseTensor * t_batch = (SparseTensor *) malloc(sizeof(SparseTensor));
-    t_batch->nnz = nnz;
-    t_batch->nmodes = _tensor->nmodes;
-    t_batch->vals = (FType*)malloc(nnz * sizeof(FType));
-
+    SparseTensor * t_batch = AllocSparseTensor(nnz, _tensor->nmodes);
     memcpy(t_batch->vals, &(_tensor->vals[start_nnz]), nnz * sizeof(*(t_batch->vals)));
+
+
+/*
+    AlignedFree(X->dims);
+    AlignedFree(X->vals);
+    for(int i = 0; i < X->nmodes; i++) {
+      AlignedFree(X->cidx[i]);
+    }
+    AlignedFree(X->cidx);
+    AlignedFree(X);
+*/
 
     _nnz_ptr = end_nnz;
     ++_batch_num;

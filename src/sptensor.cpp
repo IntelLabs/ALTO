@@ -294,3 +294,16 @@ void CreateSparseTensor(
 
   *X_ = X;
 }
+
+SparseTensor * AllocSparseTensor(const int nnz, const int nmodes) {
+  SparseTensor * sp = (SparseTensor *) malloc(sizeof(SparseTensor));
+    sp->nnz = nnz;
+    sp->nmodes = nmodes;
+    sp->vals = (FType*)malloc(nnz * sizeof(FType));
+    sp->cidx = (IType**)malloc(nmodes * sizeof(IType*));
+    sp->dims = (IType*)malloc(nmodes * sizeof(IType));
+    for (int m = 0; m < nmodes; ++m) {
+        sp->cidx[m] = (IType*)malloc(nnz * sizeof(IType));
+    }
+    return sp;
+}
