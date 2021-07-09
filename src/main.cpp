@@ -13,6 +13,7 @@
 #include "common.hpp"
 #include "alto.hpp"
 #include "cpd.hpp"
+#include "streaming_sptensor.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -79,10 +80,11 @@ const struct option long_opt[] = {
     {"file",           1, NULL, 'f'},
     {"check",          0, NULL, 'c'},
     {"bench",          0, NULL, 'p'},
+	{"streaming-mode", 1, NULL, 'a'},
     {NULL,             0, NULL,    0}
 };
 
-const char* const short_opt = "hvi:o:b:r:m:x:d:t:s:e:f:cp";
+const char* const short_opt = "hvi:o:b:r:m:x:d:t:s:e:f:cpa:";
 const char* version_info = "0.1.1";
 
 int main(int argc, char** argv)
@@ -110,6 +112,7 @@ int main(int argc, char** argv)
 	int save_to_file = 0;
     bool do_check = false;
     bool do_mttkrp_bench = false;
+	int streaming_mode = -1;
 
 	int c = 0;
 	while ((c = getopt_long(argc, argv, short_opt, long_opt, NULL)) != -1) {
@@ -184,6 +187,9 @@ int main(int argc, char** argv)
         case 'p':
             do_mttkrp_bench = true;
             break;
+		case 'a':
+			streaming_mode = atoi(optarg);
+			break;
 		case ':':
 			fprintf(stderr, "Option -%c requires an argument.\n", optopt);
 			return -1;
@@ -202,6 +208,8 @@ int main(int argc, char** argv)
 	pre_n0 = PrintNodeMem(0, "Active:");
 	pre_n1 = PrintNodeMem(1, "Active:");
 #endif
+
+	// Load SparseTensor
 	SparseTensor* X = NULL;
 	if (!binary_file.empty()) {
 		BEGIN_TIMER(&ticks_start);
@@ -233,87 +241,103 @@ int main(int argc, char** argv)
 			PRINT_TIMER("Writing to binary file", t_write);
 		}
 	}
-	else if (dims.empty()) {
-		fprintf(stderr, "No dims specified... exiting\n");
-		Usage(argv[0]);
-		exit(-1);
-	}
-	else {
-		BEGIN_TIMER(&ticks_start);
-		MakeSparseTensor(nmodes, &dims[0], sparsity, rank, &X);
-		END_TIMER(&ticks_end);
-		ELAPSED_TIME(ticks_start, ticks_end, &t_create);
-		PRINT_TIMER("Creating a new tensor", t_create);
 
-		if (save_to_file) {
-			BEGIN_TIMER(&ticks_start);
-			ExportSparseTensor(NULL, TEXT_FORMAT, X);
-			ExportSparseTensor(NULL, BINARY_FORMAT, X);
-			END_TIMER(&ticks_end);
-			ELAPSED_TIME(ticks_start, ticks_end, &t_write);
-			PRINT_TIMER("Wrinting to text/binary files", t_write);
-
+	if (streaming_mode == -1) {
+		// Non-streaming TD
+		if (dims.empty()) {
+			fprintf(stderr, "No dims specified... exiting\n");
+			Usage(argv[0]);
+			exit(-1);
 		}
+		else {
+			BEGIN_TIMER(&ticks_start);
+			MakeSparseTensor(nmodes, &dims[0], sparsity, rank, &X);
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_create);
+			PRINT_TIMER("Creating a new tensor", t_create);
+
+			if (save_to_file) {
+				BEGIN_TIMER(&ticks_start);
+				ExportSparseTensor(NULL, TEXT_FORMAT, X);
+				ExportSparseTensor(NULL, BINARY_FORMAT, X);
+				END_TIMER(&ticks_end);
+				ELAPSED_TIME(ticks_start, ticks_end, &t_write);
+				PRINT_TIMER("Wrinting to text/binary files", t_write);
+
+			}
+		}
+		// if check flag is given, only do this
+		if (do_check) {
+			RunAltoCheck(X, rank, seed, target_mode, omp_get_max_threads());
+			return 0;
+		}
+		if (do_mttkrp_bench) {
+	#ifdef memtrace
+		printf("After initialization\n");
+		long long post_n0, post_n1;
+		post_n0 = PrintNodeMem(0, "Active:");
+		post_n1 = PrintNodeMem(1, "Active:");
+		printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	#endif
+			// adjust target mode and number of partitions accordingly
+			BenchmarkAlto(X, max_iters, rank, seed, target_mode, omp_get_max_threads());
+	#ifdef memtrace
+		printf("After compute\n");
+
+		post_n0 = node_mem(0, "Active:");
+		post_n1 = node_mem(1, "Active:");
+		printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	#endif
+			return 0;
+		}
+
+		PrintTensorInfo(rank, max_iters, X);
+
+		// Set up the factor matrices
+		KruskalModel* M;
+		CreateKruskalModel(X->nmodes, X->dims, rank, &M);
+		KruskalModelRandomInit(M, (unsigned int)seed);
+		// PrintKruskalModel(M);
+
+		/*BEGIN_TIMER(&ticks_start);
+		cpd(X, M, max_iters, epsilon);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+		PRINT_TIMER("CPD (COO)", t_cpd);
+
+		ExportKruskalModel(M, text_file_out.c_str());*/
+
+		// Convert COO to ALTO
+		AltoTensor<LIType>* AT;
+		int num_partitions = omp_get_max_threads();
+		create_alto(X, &AT, num_partitions);
+
+		BEGIN_TIMER(&ticks_start);
+		cpd_alto(AT, M, max_iters, epsilon);
+		// cpd(X, M, max_iters, epsilon);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+		PRINT_TIMER("CPD (ALTO)", t_cpd);
+
+		// Cleanup
+		DestroySparseTensor(X);
+		DestroyKruskalModel(M);
+		destroy_alto(AT);
+
+		return 0;
+
+	} else {
+		// Streaming TD
+		StreamingSparseTensor sst(X, streaming_mode) ;
+		printf("Streaming mode: %d\n", sst._stream_mode);
+		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
+
+		while(!sst.last_batch()) {
+			SparseTensor * t_batch = sst.next_batch();
+			printf("Batch num: %d, nnz: %d\n", sst._batch_num, t_batch->nnz);
+		}
+
 	}
-    // if check flag is given, only do this
-    if (do_check) {
-        RunAltoCheck(X, rank, seed, target_mode, omp_get_max_threads());
-        return 0;
-    }
-    if (do_mttkrp_bench) {
-#ifdef memtrace
-	printf("After initialization\n");
-	long long post_n0, post_n1;
-	post_n0 = PrintNodeMem(0, "Active:");
-	post_n1 = PrintNodeMem(1, "Active:");
-	printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
-#endif
-    	// adjust target mode and number of partitions accordingly
-	    BenchmarkAlto(X, max_iters, rank, seed, target_mode, omp_get_max_threads());
-#ifdef memtrace
-	printf("After compute\n");
-
-	post_n0 = node_mem(0, "Active:");
-	post_n1 = node_mem(1, "Active:");
-	printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
-#endif
-	    return 0;
-    }
-
-	PrintTensorInfo(rank, max_iters, X);
-
-	// Set up the factor matrices
-	KruskalModel* M;
-	CreateKruskalModel(X->nmodes, X->dims, rank, &M);
-	KruskalModelRandomInit(M, (unsigned int)seed);
-	// PrintKruskalModel(M);
-
-	/*BEGIN_TIMER(&ticks_start);
-	cpd(X, M, max_iters, epsilon);
-	END_TIMER(&ticks_end);
-	ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
-	PRINT_TIMER("CPD (COO)", t_cpd);
-
-	ExportKruskalModel(M, text_file_out.c_str());*/
-
-	// Convert COO to ALTO
-	AltoTensor<LIType>* AT;
-	int num_partitions = omp_get_max_threads();
-	create_alto(X, &AT, num_partitions);
-
-    BEGIN_TIMER(&ticks_start);
-    cpd_alto(AT, M, max_iters, epsilon);
-    // cpd(X, M, max_iters, epsilon);
-    END_TIMER(&ticks_end);
-    ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
-    PRINT_TIMER("CPD (ALTO)", t_cpd);
-
-    // Cleanup
-	DestroySparseTensor(X);
-	DestroyKruskalModel(M);
-	destroy_alto(AT);
-
-	return 0;
 }
 
 void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
