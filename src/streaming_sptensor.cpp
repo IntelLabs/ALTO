@@ -101,19 +101,21 @@ SparseTensor * StreamingSparseTensor::next_batch() {
     // Make sure we don't have empty batches
     assert(nnz > 0);
 
-    SparseTensor * t_batch = AllocSparseTensor(nnz, _tensor->nmodes);
+    SparseTensor * t_batch = AllocSparseTensor(nnz, _tensor->nmodes - 1); // Since we're dismissing the streaming mode
     memcpy(t_batch->vals, &(_tensor->vals[start_nnz]), nnz * sizeof(*(t_batch->vals)));
+    
+    // Need to figure out how to modify the dims and cidx for the batch tensors
+    // SPLATT recomputes it in a unique way - should we follow?
+    int new_mode_idx = 0;
 
-
-/*
-    AlignedFree(X->dims);
-    AlignedFree(X->vals);
-    for(int i = 0; i < X->nmodes; i++) {
-      AlignedFree(X->cidx[i]);
+    for (int m = 0; m < _tensor->nmodes; ++m) {
+        if (m == _stream_mode) continue;
+        else {
+            t_batch->dims[new_mode_idx] = _tensor->dims[m];
+            memcpy(t_batch->cidx[new_mode_idx], &(_tensor->cidx[m][start_nnz]), nnz * sizeof(*(_tensor->cidx[m])));
+            ++new_mode_idx;
+        }
     }
-    AlignedFree(X->cidx);
-    AlignedFree(X);
-*/
 
     _nnz_ptr = end_nnz;
     ++_batch_num;

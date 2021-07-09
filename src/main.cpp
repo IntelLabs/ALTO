@@ -335,9 +335,53 @@ int main(int argc, char** argv)
 		while(!sst.last_batch()) {
 			SparseTensor * t_batch = sst.next_batch();
 			printf("Batch num: %d, nnz: %d\n", sst._batch_num, t_batch->nnz);
+		
+			// Checking stuff
+			/*
+			for (int m = 0; m < t_batch->nmodes; ++m) {
+				printf(" Dim %d size: %d\n", m, t_batch->dims[m]);
+			}
+			for (int n = 0; n < 10; ++n) {
+				for (int m = 0; m < t_batch->nmodes; ++m) {
+					printf("%d\t", t_batch->cidx[m][n]);
+				}
+				printf("\n");
+			}
+			*/
 
+			PrintTensorInfo(rank, max_iters, t_batch);
+
+			// Set up the factor matrices
+			KruskalModel* M;
+			CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
+			KruskalModelRandomInit(M, (unsigned int)seed);
+			// PrintKruskalModel(M);
+
+			/*BEGIN_TIMER(&ticks_start);
+			cpd(X, M, max_iters, epsilon);
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+			PRINT_TIMER("CPD (COO)", t_cpd);
+
+			ExportKruskalModel(M, text_file_out.c_str());*/
+
+			// Convert COO to ALTO
+			AltoTensor<LIType>* AT;
+			int num_partitions = omp_get_max_threads();
+			create_alto(t_batch, &AT, num_partitions);
+
+			BEGIN_TIMER(&ticks_start);
+			cpd_alto(AT, M, max_iters, epsilon);
+			// cpd(X, M, max_iters, epsilon);
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+			PRINT_TIMER("CPD (ALTO)", t_cpd);
+
+			// Cleanup
 			DestroySparseTensor(t_batch);
-		}
+			DestroyKruskalModel(M);
+			destroy_alto(AT);
+		} // All batchs are complete
 
 		DestroySparseTensor(X);
 		// DestroyKruskalModel(M);
