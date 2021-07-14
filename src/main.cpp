@@ -327,7 +327,7 @@ int main(int argc, char** argv)
 		return 0;
 
 	} else {
-		// Streaming TD
+		// Streaming Tensor decomposition
 		StreamingSparseTensor sst(X, streaming_mode) ;
 		printf("Streaming mode: %d\n", sst._stream_mode);
 		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
@@ -337,7 +337,7 @@ int main(int argc, char** argv)
 			printf("Batch num: %d, nnz: %d\n", sst._batch_num, t_batch->nnz);
 		
 			// Checking stuff
-			/*
+			
 			for (int m = 0; m < t_batch->nmodes; ++m) {
 				printf(" Dim %d size: %d\n", m, t_batch->dims[m]);
 			}
@@ -347,8 +347,7 @@ int main(int argc, char** argv)
 				}
 				printf("\n");
 			}
-			*/
-
+			
 			PrintTensorInfo(rank, max_iters, t_batch);
 
 			// Set up the factor matrices

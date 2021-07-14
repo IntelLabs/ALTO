@@ -52,6 +52,11 @@ typedef float FType;
 
 #define ROW 1
 
+#define IDX_MAX UINT32_MAX // Max dimension a mode can have
+
+#define SS_MIN(x,y) ((x) < (y) ? (x) : (y))
+#define SS_MAX(x,y) ((x) > (y) ? (x) : (y))
+
 inline uint64_t ReadTSC(void)
 {
 #if defined(__i386__)

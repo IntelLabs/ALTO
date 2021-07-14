@@ -3,6 +3,7 @@
 
 #include "common.hpp"
 #include "sptensor.hpp"
+#include "util.hpp"
 
 class StreamingSparseTensor {
     public:
@@ -24,6 +25,10 @@ class StreamingSparseTensor {
         int _stream_mode;
         SparseTensor * _tensor;
         int _batch_num;
+
+        /* Store permutation, inverse permutation info */
+        Permutation * _perm;
+
     private:
         IType _prev_dim[MAX_NUM_MODES];
 

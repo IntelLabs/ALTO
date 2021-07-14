@@ -74,6 +74,44 @@ StreamingSparseTensor::StreamingSparseTensor(
     // First sort tensor based on streaming mode
     tensor_sort(_tensor, _stream_mode);
 
+    for (int m = 0; m < _tensor->nmodes; ++m) {
+        _prev_dim[m] = 0;
+    }
+    // Allocation permutation array
+    _perm = perm_alloc(_tensor->dims, _tensor->nmodes);
+
+    // Store permutation info
+    for (int m = 0; m < _tensor->nmodes; ++m) {
+        IType * const perm = _perm->perms[m];
+        IType * const iperm = _perm->iperms[m];
+
+        if (m == _stream_mode) {
+            for (IType i = 0; i < _tensor->dims[m]; ++i) {
+                perm[i] = i;
+                iperm[i] = i;
+            }
+            continue;
+        }
+
+        // IDX_MAX is the initial value
+        for (IType i = 0; i < _tensor->dims[m]; ++i) {
+            perm[i] = IDX_MAX;
+            iperm[i] = IDX_MAX;
+        }
+
+        IType seen = 0;
+        IType * const inds = _tensor->cidx[m];
+        for (IType n = 0; n < _tensor->nnz; ++n) {
+            IType const ind = inds[n];
+
+            if (perm[ind] == IDX_MAX) {
+                perm[ind] = seen;
+                iperm[seen] = ind;
+                ++seen;
+            }
+            inds[n] = perm[ind];
+        }
+    }
 };
 
 SparseTensor * StreamingSparseTensor::next_batch() {
@@ -101,19 +139,37 @@ SparseTensor * StreamingSparseTensor::next_batch() {
     // Make sure we don't have empty batches
     assert(nnz > 0);
 
-    SparseTensor * t_batch = AllocSparseTensor(nnz, _tensor->nmodes - 1); // Since we're dismissing the streaming mode
-    memcpy(t_batch->vals, &(_tensor->vals[start_nnz]), nnz * sizeof(*(t_batch->vals)));
+    // We're still keeping track of the streaming mode
+    SparseTensor * t_batch = AllocSparseTensor(nnz, _tensor->nmodes); 
     
+    // Copy the values
+    memcpy(t_batch->vals, &(_tensor->vals[start_nnz]), nnz * sizeof(*(t_batch->vals)));
+
+    #pragma omp parallel for schedule(static)
+    for(IType n=0; n < nnz; ++n) {
+        t_batch->cidx[_stream_mode][n] = 0;
+    }
+
     // Need to figure out how to modify the dims and cidx for the batch tensors
     // SPLATT recomputes it in a unique way - should we follow?
-    int new_mode_idx = 0;
-
+    // SPLATT takes care of the cidx by permuting when first loading the nnzs
+    // How here its enough to just copy them to the current batch
+    // Adjust the size of the dimensions since 
+    // it doesn't make sense to keep track of the full sized factor matrix sizes
     for (int m = 0; m < _tensor->nmodes; ++m) {
-        if (m == _stream_mode) continue;
-        else {
-            t_batch->dims[new_mode_idx] = _tensor->dims[m];
-            memcpy(t_batch->cidx[new_mode_idx], &(_tensor->cidx[m][start_nnz]), nnz * sizeof(*(_tensor->cidx[m])));
-            ++new_mode_idx;
+        if (m == _stream_mode) {
+            t_batch->dims[_stream_mode] = 1;
+            continue;
+        } else {
+            memcpy(t_batch->cidx[m], &(_tensor->cidx[m][start_nnz]), nnz * sizeof(*(_tensor->cidx[m])));
+
+            IType dim = 0;
+            #pragma omp parallel for schedule(static) reduction(max: dim)
+            for (IType n = 0; n < nnz; ++n) {
+                dim = SS_MAX(dim, t_batch->cidx[m][n]);
+            }
+            t_batch->dims[m] = SS_MAX(dim + 1, _prev_dim[m]);
+            _prev_dim[m] = t_batch->dims[m];
         }
     }
 
