@@ -14,6 +14,7 @@
 #include "alto.hpp"
 #include "cpd.hpp"
 #include "streaming_sptensor.hpp"
+#include "streaming_cpd.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -328,13 +329,22 @@ int main(int argc, char** argv)
 
 	} else {
 		// Streaming Tensor decomposition
-		StreamingSparseTensor sst(X, streaming_mode) ;
+		StreamingSparseTensor sst(X, streaming_mode);
 		printf("Streaming mode: %d\n", sst._stream_mode);
 		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
 
-		while(!sst.last_batch()) {
+		// Init StreamingCPD model
+		StreamingCPD scpd(rank, nmodes);
+		scpd.init(); // Initialize factor matrices
+
+		while(!sst.last_batch()) { // While we stream streaming tensor
 			SparseTensor * t_batch = sst.next_batch();
-			printf("Batch num: %d, nnz: %d\n", sst._batch_num, t_batch->nnz);
+			
+			// Modify internals for scpd to accomodate new time batch
+			scpd.preprocess(t_batch, streaming_mode);
+			printf("hello\n");
+			scpd.compute(0.77);
+			scpd.update();
 		
 			// Checking stuff
 			
