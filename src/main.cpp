@@ -334,7 +334,7 @@ int main(int argc, char** argv)
 		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
 
 		// Init StreamingCPD model
-		StreamingCPD scpd(rank, nmodes);
+		StreamingCPD scpd(rank, sst._tensor->nmodes);
 		scpd.init(); // Initialize factor matrices
 
 		while(!sst.last_batch()) { // While we stream streaming tensor
@@ -342,7 +342,6 @@ int main(int argc, char** argv)
 			
 			// Modify internals for scpd to accomodate new time batch
 			scpd.preprocess(t_batch, streaming_mode);
-			printf("hello\n");
 			scpd.compute(0.77);
 			scpd.update();
 		

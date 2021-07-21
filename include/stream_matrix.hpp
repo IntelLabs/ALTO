@@ -25,9 +25,9 @@ public:
   inline IType num_rows() { return _nrows; };
   inline IType num_cols() { return _ncols; };
 
-private:
   IType _nrows;
   IType _ncols;
+private:
   IType _row_capacity;
 
   void grow(IType nrows);

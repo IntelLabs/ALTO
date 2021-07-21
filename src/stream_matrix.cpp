@@ -9,9 +9,10 @@ StreamMatrix::StreamMatrix(
     _mat(NULL)
 {
     _mat = init_mat(_row_capacity, rank);
-    _nrows = 12;
-    _ncols = 33;
+    // _nrows = 12;
+    // _ncols = 33;
 
+    printf("=== Stream Matrix initialized ===\n");
 }
 
 StreamMatrix::~StreamMatrix()

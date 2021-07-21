@@ -29,12 +29,12 @@ class StreamingCPD {
         int _rank;
         int _nmodes;
 
-        FType * colnorms;
+        FType * _colnorms;
 
         StreamMatrix * _global_time;
         StreamMatrix * _mttkrp_buf;
-        StreamMatrix ** _factor_matrices; // A_n for all modes
-        StreamMatrix ** _prev_factor_matrices; // A_n,t-1 for all modes
+        StreamMatrix * _factor_matrices[MAX_NUM_MODES]; // A_n for all modes
+        StreamMatrix * _prev_factor_matrices[MAX_NUM_MODES]; // A_n,t-1 for all modes
 
         Matrix ** mats_aTa;
         Matrix * gram;
