@@ -12,7 +12,8 @@ class StreamingCPD {
     public:
         StreamingCPD(
             int rank,
-            int nmodes
+            int nmodes,
+            int max_iterations
         );
         ~StreamingCPD() {};
 
@@ -28,6 +29,7 @@ class StreamingCPD {
         SparseTensor * _st;
         int _rank;
         int _nmodes;
+        int _max_iterations;
 
         FType * _colnorms;
 

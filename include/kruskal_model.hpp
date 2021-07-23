@@ -22,6 +22,10 @@ typedef enum
 
 void CreateKruskalModel(int mode, IType *dim, IType rank, KruskalModel **M_);
 
+void GrowKruskalModel(IType *dims, KruskalModel **M_);
+
+void CopyKruskalModel(KruskalModel **prev_M_, KruskalModel **M_);
+
 void KruskalModelNormalize(KruskalModel *M);
 
 void KruskalModelNorm(KruskalModel* M,

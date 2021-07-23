@@ -89,6 +89,164 @@ void CreateKruskalModel(int mode, IType *dims, IType rank, KruskalModel **M_)
     *M_ = M;
 }
 
+// Expand the size of the Kruskal Model given new dimensions
+// This version is the one that maintains the full temporal factor matrices
+/*
+void GrowKruskalModel(IType *dims, KruskalModel **M_, int streaming_mode)
+{
+    IType mode = (*M_)->mode;
+    IType rank = (*M_)->rank;
+    IType * old_dims = (*M_)->dims; // previous dimension sizes
+    FType ** U = (*M_)->U;
+    FType * lambda = (*M_)->lambda;
+
+    assert(rank >= 1);
+    assert(mode >= 1);
+
+    KruskalModel *M = (KruskalModel *)AlignedMalloc(sizeof(KruskalModel));
+    assert(M != NULL);
+
+    M->mode = mode;
+    M->rank = rank;
+    M->dims = (IType *) AlignedMalloc(mode * sizeof(IType));
+    assert(M->dims != NULL);
+    memcpy(M->dims, dims, sizeof(IType) * mode); // copy new dims to new kruskal
+
+    M->U = (FType **)AlignedMalloc(mode * sizeof(FType *));
+    assert(M->U != NULL);
+    for (int n = 0; n < mode; ++n) {
+        if (n != streaming_mode) {
+            M->U[n] = (FType *)AlignedMalloc(dims[n] * rank * sizeof(FType));
+            assert(M->U[n] != NULL);
+
+            // Copy values from previous factor matrix to expanded factor matrix
+            memcpy(M->U[n], U[n], old_dims[n] * rank * sizeof(FType));
+
+            // Fill exceeding values with zeros
+            int added_nrows = dims[n] - old_dims[n];
+            if (added_nrows > 0) { // If we need to add more rows
+                for (int r = 0; r < added_nrows * rank; ++r) {
+                    // Set all added entries to 0.0
+                    M->U[n][old_dims[n] * rank + r] = 0.0;
+                }
+            }
+        } else { 
+            // Grow the streaming mode by 1
+            int current_dim = (*M_)->dims[n];
+            M->U[n] = (FType *)AlignedMalloc((current_dim + 1) * rank * sizeof(FType));
+            assert(M->U[n] != NULL);
+
+            // Copy values from previous factor matrix to expanded factor matrix
+            memcpy(M->U[n], U[n], current_dim * rank * sizeof(FType));
+
+            for (int r = 0; r < rank; ++r) {
+                M->U[n][current_dim * rank + r] = 0.0;
+            }
+            M->dims[n] = current_dim + 1;
+        }
+    }
+    M->lambda = (FType *) AlignedMalloc(rank * sizeof (FType));
+    assert(M->lambda != NULL);
+    memcpy(M->lambda, lambda, sizeof(FType) * rank);
+    DestroyKruskalModel(*M_);
+    *M_ = M;
+}
+*/
+void GrowKruskalModel(IType *dims, KruskalModel **M_)
+{
+    IType mode = (*M_)->mode;
+    IType rank = (*M_)->rank;
+    IType * old_dims = (*M_)->dims; // previous dimension sizes
+    FType ** U = (*M_)->U;
+    FType * lambda = (*M_)->lambda;
+
+    assert(rank >= 1);
+    assert(mode >= 1);
+
+    KruskalModel *M = (KruskalModel *)AlignedMalloc(sizeof(KruskalModel));
+    assert(M != NULL);
+
+    M->mode = mode;
+    M->rank = rank;
+    M->dims = (IType *) AlignedMalloc(mode * sizeof(IType));
+    assert(M->dims != NULL);
+    memcpy(M->dims, dims, sizeof(IType) * mode); // copy new dims to new kruskal
+
+    M->U = (FType **)AlignedMalloc(mode * sizeof(FType *));
+    assert(M->U != NULL);
+    for (int n = 0; n < mode; ++n) {
+        M->U[n] = (FType *)AlignedMalloc(dims[n] * rank * sizeof(FType));
+        assert(M->U[n] != NULL);
+
+        // Copy values from previous factor matrix to expanded factor matrix
+        memcpy(M->U[n], U[n], old_dims[n] * rank * sizeof(FType));
+
+        // Fill exceeding values with zeros
+        int added_nrows = dims[n] - old_dims[n];
+        if (added_nrows > 0) { // If we need to add more rows
+            for (int r = 0; r < added_nrows * rank; ++r) {
+                // Set all added entries to 0.0
+                M->U[n][old_dims[n] * rank + r] = 0.0;
+            }
+        }
+    }
+    M->lambda = (FType *) AlignedMalloc(rank * sizeof (FType));
+    assert(M->lambda != NULL);
+    memcpy(M->lambda, lambda, sizeof(FType) * rank);
+    DestroyKruskalModel(*M_);
+    *M_ = M;
+}
+
+void CopyKruskalModel(KruskalModel **prev_M_, KruskalModel **M_)
+{
+    IType mode = (*M_)->mode;
+    IType rank = (*M_)->rank;
+    IType * dims = (*M_)->dims;
+    FType ** U = (*M_)->U;
+    FType * lambda = (*M_)->lambda;
+
+    // Check source Kruskal model is not empty
+    assert(rank >= 1);
+    assert(mode >= 1);
+
+    KruskalModel *M = (KruskalModel *)AlignedMalloc(sizeof(KruskalModel));
+    assert(M != NULL);
+
+    M->mode = mode;
+    M->rank = rank;
+    M->dims = (IType *) AlignedMalloc(mode * sizeof(IType));
+    assert(M->dims != NULL);
+    memcpy(M->dims, dims, sizeof(IType) * mode);
+
+    M->U = (FType **)AlignedMalloc(mode * sizeof(FType *));
+    assert(M->U != NULL);
+    for (int n = 0; n < mode; ++n) {
+        M->U[n] = (FType *)AlignedMalloc(dims[n] * rank * sizeof(FType));
+        assert(M->U[n] != NULL);
+        memcpy(M->U[n], U[n], dims[n] * rank * sizeof(FType));
+    }
+    M->lambda = (FType *) AlignedMalloc(rank * sizeof (FType));
+    assert(M->lambda != NULL);
+    memcpy(M->lambda, lambda, sizeof(FType) * rank);
+
+    *prev_M_ = M;
+}
+
+void GrowTimeFactorMatrix(KruskalModel **M_, int streaming_mode) {
+    int current_dim = (*M_)->dims[streaming_mode];
+    int rank = (*M_)->rank;
+    FType * tmp = (FType *)AlignedMalloc((current_dim + 1) * sizeof(FType));
+    memcpy(tmp, (*M_)->U[streaming_mode], sizeof(FType) * current_dim * rank);
+    AlignedFree((*M_)->U[streaming_mode]);
+
+    // Set Time Factor to 0 for newly added row
+    for (int r = 0; r < rank; ++r) {
+        tmp[current_dim * rank + r] = 0.0;
+    }
+
+    (*M_)->U[streaming_mode] = tmp;
+    (*M_)->dims[streaming_mode] = current_dim + 1;
+}
 
 void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
 {

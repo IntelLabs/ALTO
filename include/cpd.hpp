@@ -31,6 +31,7 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, FType** grams, FType* 
 
 // Reference COO implementations
 void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon);
+void streaming_cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon, int streaming_mode, int iter);
 double cpd_fit(SparseTensor* X, KruskalModel* M, FType** grams, FType* U_mttkrp);
 void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writelocks);
 void mttkrp(SparseTensor* X, KruskalModel* M, IType mode);
@@ -271,6 +272,118 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, FType** grams, FType* 
   return ret;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void streaming_cpd(
+  SparseTensor* X, KruskalModel* M, 
+  int max_iters, double epsilon, 
+  int streaming_mode, int iteration)
+{
+  fprintf(stdout, "Running CP-Stream with %d max iterations and %.2e epsilon\n",
+          max_iters, epsilon);
+
+  int nmodes = X->nmodes;
+  IType* dims = X->dims;
+  IType rank = M->rank;
+
+  // set up temporary data structures
+  FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * dims[nmodes - 1] *
+                                          rank);
+  assert(scratch);
+  IType nthreads = omp_get_max_threads();
+
+  // Lambda scratchpad
+  FType ** lambda_sp = (FType **) AlignedMalloc(sizeof(FType*) * nthreads);
+  assert(lambda_sp);
+  #pragma omp parallel for
+  for (IType t = 0; t < nthreads; ++t) {
+    lambda_sp[t] = (FType *) AlignedMalloc(sizeof(FType) * rank);
+    assert(lambda_sp[t]);
+  }
+  
+  // set up OpenMP locks
+  IType max_mode_len = 0;
+  for(int i = 0; i < M->mode; i++) {
+    if(max_mode_len < M->dims[i]) {
+        max_mode_len = M->dims[i];
+    }
+  }
+  omp_lock_t* writelocks = (omp_lock_t*) AlignedMalloc(sizeof(omp_lock_t) *
+                                                       max_mode_len);
+  assert(writelocks);
+  for(IType i = 0; i < max_mode_len; i++) {
+    omp_init_lock(&(writelocks[i]));
+  }
+
+  // keep track of the fit for convergence check
+  double fit = 0.0;
+  double prev_fit = 0.0;
+
+  // compute initial A**T * A for every mode
+  FType** grams;
+  init_grams(&grams, M);
+
+  for(int i = 0; i < max_iters; i++) {
+    // Solve for time mode (s_t)
+    // set to zero
+    memset(M->U[streaming_mode], 0, sizeof(FType) * rank);
+    // MTTKRP for s_t
+    mttkrp_par(X, M, streaming_mode, writelocks);
+    pseudo_inverse(grams, M, streaming_mode);
+
+    for(int j = 0; j < X->nmodes; j++) {
+      // MTTKRP
+      memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
+      mttkrp_par(X, M, j, writelocks);
+      // mttkrp(X, M, j);
+      // if it is the last mode, save the MTTKRP result for fit calculation
+      if(j == nmodes - 1) {
+        memcpy(scratch, M->U[j], sizeof(FType) * dims[j] * rank);
+      }
+
+      pseudo_inverse(grams, M, j);
+
+      // Normalize columns
+      if(i == 0) {
+        KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
+      } else {
+        KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
+      }
+
+      // Update the Gram matrices
+      update_gram(grams[j], M, j);
+      // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
+
+      // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
+    } // for each mode
+
+    // calculate fit
+    fit = cpd_fit(X, M, grams, scratch);
+
+    // if fit - oldfit < epsilon, quit
+    if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
+      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+             fabs(prev_fit - fit));
+      break;
+    } else {
+      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+             fabs(prev_fit - fit));
+    }
+    prev_fit = fit;
+  } // for max_iters
+
+  // cleanup
+  #pragma omp parallel for
+  for (IType t = 0; t < nthreads; ++t) {
+    free(lambda_sp[t]);
+  }
+  free(lambda_sp);
+  free(scratch);
+  for(IType i = 0; i < max_mode_len; i++) {
+    omp_destroy_lock(&(writelocks[i]));
+  }
+  free(writelocks);
+  destroy_grams(grams, M);
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
 {

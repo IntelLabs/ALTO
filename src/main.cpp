@@ -334,35 +334,38 @@ int main(int argc, char** argv)
 		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
 
 		// Init StreamingCPD model
-		StreamingCPD scpd(rank, sst._tensor->nmodes);
+		StreamingCPD scpd(rank, sst._tensor->nmodes, max_iters);
 		scpd.init(); // Initialize factor matrices
+		
 
-		while(!sst.last_batch()) { // While we stream streaming tensor
+		int it = 0;  // Keeps track of time iterations
+		KruskalModel * M; // Keeps track of current factor matrices
+		KruskalModel * prev_M; // Keeps track of previous factor matrices
+
+		while(!sst.last_batch() && it < 30) { // While we stream streaming tensor
+
 			SparseTensor * t_batch = sst.next_batch();
 			
-			// Modify internals for scpd to accomodate new time batch
-			scpd.preprocess(t_batch, streaming_mode);
-			scpd.compute(0.77);
-			scpd.update();
-		
-			// Checking stuff
-			
+			// Create according Kruskal Models Accordingly
+			// We store factor matrices in Kruskal Model form
+			if (it == 0) {
+				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
+				KruskalModelRandomInit(M, (unsigned int)seed);
+			} else {
+				GrowKruskalModel(t_batch->dims, &M); // Expands the kruskal model to accomodate new dimensions
+				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
+			}
+
+			printf("Time dim dimensions %d has size: %d\n", streaming_mode, M->dims[streaming_mode]);
+			printf("Iteration : %d\n", it);
 			for (int m = 0; m < t_batch->nmodes; ++m) {
-				printf(" Dim %d size: %d\n", m, t_batch->dims[m]);
+				printf(" Dim %d size: %llu\n", m, t_batch->dims[m]);
+				printf("Factor matrix for mode %d dimensions: %d\n", m, M->dims[m]);
 			}
-			for (int n = 0; n < 10; ++n) {
-				for (int m = 0; m < t_batch->nmodes; ++m) {
-					printf("%d\t", t_batch->cidx[m][n]);
-				}
-				printf("\n");
-			}
-			
+
 			PrintTensorInfo(rank, max_iters, t_batch);
 
-			// Set up the factor matrices
-			KruskalModel* M;
-			CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
-			KruskalModelRandomInit(M, (unsigned int)seed);
+			streaming_cpd(t_batch, M, max_iters, epsilon, streaming_mode, it);
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);
@@ -373,13 +376,9 @@ int main(int argc, char** argv)
 
 			ExportKruskalModel(M, text_file_out.c_str());*/
 
-			// Convert COO to ALTO
-			AltoTensor<LIType>* AT;
-			int num_partitions = omp_get_max_threads();
-			create_alto(t_batch, &AT, num_partitions);
-
+			
 			BEGIN_TIMER(&ticks_start);
-			cpd_alto(AT, M, max_iters, epsilon);
+			// cpd_alto(AT, M, max_iters, epsilon);
 			// cpd(X, M, max_iters, epsilon);
 			END_TIMER(&ticks_end);
 			ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
@@ -387,12 +386,14 @@ int main(int argc, char** argv)
 
 			// Cleanup
 			DestroySparseTensor(t_batch);
-			DestroyKruskalModel(M);
-			destroy_alto(AT);
+			// DestroyKruskalModel(M);
+			// destroy_alto(AT);
+			++it; // Increase iteration
 		} // All batchs are complete
 
 		DestroySparseTensor(X);
-		// DestroyKruskalModel(M);
+		DestroyKruskalModel(M);
+		DestroyKruskalModel(prev_M);
 		return 0;
 
 	}
