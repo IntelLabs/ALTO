@@ -68,7 +68,6 @@ void PrintFPMatrix(char *name, FType * a, size_t m, size_t n)
     fprintf(stderr,"\n");
 }
 
-
 void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n)
 {
 	fprintf(stderr,"%s:\n", name);

@@ -11,6 +11,10 @@ struct matrix_struct {
 };
 typedef struct matrix_struct Matrix;
 
+
+void PrintMatrix(char *name, Matrix * M);
+
+
 class StreamMatrix
 {
 public:

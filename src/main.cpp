@@ -351,6 +351,7 @@ int main(int argc, char** argv)
 			if (it == 0) {
 				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
 				KruskalModelRandomInit(M, (unsigned int)seed);
+				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
 			} else {
 				GrowKruskalModel(t_batch->dims, &M); // Expands the kruskal model to accomodate new dimensions
 				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
@@ -365,7 +366,7 @@ int main(int argc, char** argv)
 
 			PrintTensorInfo(rank, max_iters, t_batch);
 
-			streaming_cpd(t_batch, M, max_iters, epsilon, streaming_mode, it);
+			streaming_cpd(t_batch, M, prev_M, max_iters, epsilon, streaming_mode, it);
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);

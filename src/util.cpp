@@ -68,3 +68,35 @@ void fill_rand(FType * vals, IType num_el) {
         vals[i] = rand_val();
     } 
 }
+
+// This matmul function has to accomodate 
+// the Kruskal model which keeps track of the factor matrix in double pointer format
+// rather than using the Matrix struct
+void my_matmul(
+  FType * A,
+  bool transA,
+  FType * B,
+  bool transB,
+  FType * C,
+  int m, int n, int k, int l, FType beta) {
+
+    int const M = transA ? n : m;
+    int const N = transB ? k : l;
+    int const K = transA ? m : n;
+    int const LDA = n;
+    int const LDB = l;
+    int const LDC = N;
+
+    assert(K == (int)(transB ? l : k));
+    /* TODO precision! (double vs not) */
+    cblas_dgemm(
+        CblasRowMajor,
+        transA ? CblasTrans : CblasNoTrans,
+        transB ? CblasTrans : CblasNoTrans,
+        M, N, K,
+        1.,
+        A, LDA,
+        B, LDB,
+        beta,
+        C, LDC);
+}
