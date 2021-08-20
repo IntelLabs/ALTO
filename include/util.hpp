@@ -4,6 +4,7 @@
 #include "common.hpp"
 #include "stream_matrix.hpp"
 #include "assert.h"
+#include <math.h>
 
 #ifdef MKL
 #include <mkl.h>
@@ -36,5 +37,10 @@ void my_matmul(
   bool transB,
   FType  * const C, 
   int m, int n, int k, int l, FType beta);
+
+double mat_norm_diff(FType * matA, FType * matB, IType size);
+double mat_norm(FType * mat, IType size);
+
+void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode);
 
 #endif // UTIL_HPP_

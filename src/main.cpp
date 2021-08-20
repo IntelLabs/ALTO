@@ -108,7 +108,8 @@ int main(int argc, char** argv)
 	std::string text_file_out;
 	std::string binary_file;
 	double sparsity = 0.1;
-	double epsilon = 1e-5;
+	// double epsilon = 1e-5;
+	double epsilon = 1e-3;
 	int seed = time(NULL);
 	int save_to_file = 0;
     bool do_check = false;
@@ -241,57 +242,58 @@ int main(int argc, char** argv)
 			ELAPSED_TIME(ticks_start, ticks_end, &t_write);
 			PRINT_TIMER("Writing to binary file", t_write);
 		}
+	} 
+	else if (dims.empty()) {
+		fprintf(stderr, "No dims specified... exiting\n");
+		Usage(argv[0]);
+		exit(-1);
+	}
+	else {
+		BEGIN_TIMER(&ticks_start);
+		MakeSparseTensor(nmodes, &dims[0], sparsity, rank, &X);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_create);
+		PRINT_TIMER("Creating a new tensor", t_create);
+
+		if (save_to_file) {
+			BEGIN_TIMER(&ticks_start);
+			ExportSparseTensor(NULL, TEXT_FORMAT, X);
+			ExportSparseTensor(NULL, BINARY_FORMAT, X);
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_write);
+			PRINT_TIMER("Wrinting to text/binary files", t_write);
+
+		}
+	}
+
+	// if check flag is given, only do this
+	if (do_check) {
+		RunAltoCheck(X, rank, seed, target_mode, omp_get_max_threads());
+		return 0;
+	}
+
+	if (do_mttkrp_bench) {
+		#ifdef memtrace
+			printf("After initialization\n");
+			long long post_n0, post_n1;
+			post_n0 = PrintNodeMem(0, "Active:");
+			post_n1 = PrintNodeMem(1, "Active:");
+			printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+		#endif
+				// adjust target mode and number of partitions accordingly
+				BenchmarkAlto(X, max_iters, rank, seed, target_mode, omp_get_max_threads());
+		#ifdef memtrace
+			printf("After compute\n");
+
+			post_n0 = node_mem(0, "Active:");
+			post_n1 = node_mem(1, "Active:");
+			printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+		#endif
+		return 0;
 	}
 
 	if (streaming_mode == -1) {
 		// Non-streaming TD
-		if (dims.empty()) {
-			fprintf(stderr, "No dims specified... exiting\n");
-			Usage(argv[0]);
-			exit(-1);
-		}
-		else {
-			BEGIN_TIMER(&ticks_start);
-			MakeSparseTensor(nmodes, &dims[0], sparsity, rank, &X);
-			END_TIMER(&ticks_end);
-			ELAPSED_TIME(ticks_start, ticks_end, &t_create);
-			PRINT_TIMER("Creating a new tensor", t_create);
-
-			if (save_to_file) {
-				BEGIN_TIMER(&ticks_start);
-				ExportSparseTensor(NULL, TEXT_FORMAT, X);
-				ExportSparseTensor(NULL, BINARY_FORMAT, X);
-				END_TIMER(&ticks_end);
-				ELAPSED_TIME(ticks_start, ticks_end, &t_write);
-				PRINT_TIMER("Wrinting to text/binary files", t_write);
-
-			}
-		}
-		// if check flag is given, only do this
-		if (do_check) {
-			RunAltoCheck(X, rank, seed, target_mode, omp_get_max_threads());
-			return 0;
-		}
-		if (do_mttkrp_bench) {
-	#ifdef memtrace
-		printf("After initialization\n");
-		long long post_n0, post_n1;
-		post_n0 = PrintNodeMem(0, "Active:");
-		post_n1 = PrintNodeMem(1, "Active:");
-		printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
-	#endif
-			// adjust target mode and number of partitions accordingly
-			BenchmarkAlto(X, max_iters, rank, seed, target_mode, omp_get_max_threads());
-	#ifdef memtrace
-		printf("After compute\n");
-
-		post_n0 = node_mem(0, "Active:");
-		post_n1 = node_mem(1, "Active:");
-		printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
-	#endif
-			return 0;
-		}
-
 		PrintTensorInfo(rank, max_iters, X);
 
 		// Set up the factor matrices
@@ -341,6 +343,8 @@ int main(int argc, char** argv)
 		int it = 0;  // Keeps track of time iterations
 		KruskalModel * M; // Keeps track of current factor matrices
 		KruskalModel * prev_M; // Keeps track of previous factor matrices
+		
+		Matrix ** grams;
 
 		while(!sst.last_batch() && it < 30) { // While we stream streaming tensor
 
@@ -351,22 +355,35 @@ int main(int argc, char** argv)
 			if (it == 0) {
 				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
 				KruskalModelRandomInit(M, (unsigned int)seed);
+				KruskalModelNormalize(M);
 				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
+
+				init_grams(&grams, M);
 			} else {
 				GrowKruskalModel(t_batch->dims, &M); // Expands the kruskal model to accomodate new dimensions
 				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
+				for (int j = 0; j < M->mode; ++j) {
+					if (j != streaming_mode) {
+						update_gram(grams[j], M, j);
+					}
+				}
 			}
 
+			/*
 			printf("Time dim dimensions %d has size: %d\n", streaming_mode, M->dims[streaming_mode]);
 			printf("Iteration : %d\n", it);
 			for (int m = 0; m < t_batch->nmodes; ++m) {
 				printf(" Dim %d size: %llu\n", m, t_batch->dims[m]);
 				printf("Factor matrix for mode %d dimensions: %d\n", m, M->dims[m]);
 			}
+			*/
 
 			PrintTensorInfo(rank, max_iters, t_batch);
 
-			streaming_cpd(t_batch, M, prev_M, max_iters, epsilon, streaming_mode, it);
+			// double fit = 0.0;
+			// fit += 
+			
+			streaming_cpd(t_batch, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);
@@ -377,7 +394,6 @@ int main(int argc, char** argv)
 
 			ExportKruskalModel(M, text_file_out.c_str());*/
 
-			
 			BEGIN_TIMER(&ticks_start);
 			// cpd_alto(AT, M, max_iters, epsilon);
 			// cpd(X, M, max_iters, epsilon);
@@ -393,6 +409,7 @@ int main(int argc, char** argv)
 		} // All batchs are complete
 
 		DestroySparseTensor(X);
+		destroy_grams(grams, M);
 		DestroyKruskalModel(M);
 		DestroyKruskalModel(prev_M);
 		return 0;

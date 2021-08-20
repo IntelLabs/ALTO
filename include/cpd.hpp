@@ -33,7 +33,7 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, Matrix ** grams, FType
 
 // Reference COO implementations
 void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon);
-void streaming_cpd(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, int max_iters, double epsilon, int streaming_mode, int iter);
+void streaming_cpd(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, Matrix** grams, int max_iters, double epsilon, int streaming_mode, int iter);
 double cpd_fit(SparseTensor* X, KruskalModel* M, Matrix ** grams, FType* U_mttkrp);
 void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writelocks);
 void mttkrp(SparseTensor* X, KruskalModel* M, IType mode);
@@ -278,7 +278,7 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, Matrix** grams, FType*
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void streaming_cpd(
-  SparseTensor* X, KruskalModel* M, KruskalModel* prev_M,
+  SparseTensor* X, KruskalModel* M, KruskalModel* prev_M, Matrix** grams,
   int max_iters, double epsilon, 
   int streaming_mode, int iteration)
 {
@@ -289,10 +289,6 @@ void streaming_cpd(
   IType* dims = X->dims;
   IType rank = M->rank;
 
-  // set up temporary data structures
-  FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * dims[nmodes - 1] *
-                                          rank);
-  assert(scratch);
   IType nthreads = omp_get_max_threads();
 
   // Lambda scratchpad
@@ -322,14 +318,16 @@ void streaming_cpd(
   double fit = 0.0;
   double prev_fit = 0.0;
 
-  // compute initial A**T * A for every mode
-  Matrix ** grams;
-  init_grams(&grams, M); // Gram matrix only has values in lower triangular
+  double delta = 0.0;
+  double prev_delta = 0.0;
 
   Matrix * old_gram = zero_mat(rank, rank);
-  // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
 
-  for(int i = 0; i < max_iters; i++) {
+  // Copy G_t-1 at the begining
+  memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
+
+  for(int i = 0; i < max_iters; i++) {    
+    delta = 0.0;
     // Solve for time mode (s_t)
     // set to zero
     memset(M->U[streaming_mode], 0, sizeof(FType) * rank);
@@ -340,7 +338,7 @@ void streaming_cpd(
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     copy_upper_tri(grams[streaming_mode]);
     // Copy newly computed gram matrix G_t to old_gram
-    memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
+    // memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     // exit(1);
 
@@ -348,16 +346,26 @@ void streaming_cpd(
     // Update grams
     for (int m = 0; m < rank; ++m) {
       for (int n = 0; n < rank; ++n) {
-          // No forgetting factor?
-          grams[streaming_mode]->vals[m + n * rank] += M->U[streaming_mode][m] * M->U[streaming_mode][n];
+          // Hard coded forgetting factor?
+          grams[streaming_mode]->vals[m + n * rank] = old_gram->vals[m + n * rank] + M->U[streaming_mode][m] * M->U[streaming_mode][n];
       }
     }
     // PrintFPMatrix("streaming mode factor matrix", M->U[streaming_mode], rank, 1);
     // PrintMatrix("gram mat after updating", grams[streaming_mode]);
     // exit(1);
 
+    // set up temporary data structures
+    FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * dims[nmodes - 1] *
+                                          rank);
+    assert(scratch);
+
     for(int j = 0; j < X->nmodes; j++) {
       if (j == streaming_mode) continue;
+      // Create buffer for factor matrix
+      FType * fm_buf = (FType*) AlignedMalloc(sizeof(FType) * dims[j] * rank);
+
+      // Copy original A(n) to fm_buf
+      memcpy(fm_buf, M->U[j], sizeof(FType) * dims[j] * rank);
 
       // MTTKRP
       memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
@@ -373,7 +381,7 @@ void streaming_cpd(
       Matrix * historical = zero_mat(rank, rank);
       Matrix * ata_buf = zero_mat(rank, rank);
 
-      // Starsts with mu * G_t-1
+      // Starts with mu * G_t-1
       memcpy(ata_buf->vals, old_gram->vals, rank * rank * sizeof(*ata_buf->vals));
 
       // Copmute A_t-1 * A_t for all other modes
@@ -395,27 +403,61 @@ void streaming_cpd(
           ata_buf->vals[x] *= historical->vals[x];
         }
       }
+      // END: Updating ata_buf (i.e. aTa matrices for all factor matrices)
 
       // A(n) (ata_buf)
       my_matmul(prev_M->U[j], false, ata_buf->vals, false, M->U[j], prev_M->dims[j], rank, rank, rank, 1.0);    
       pseudo_inverse(grams, M, j);
 
       // Normalize columns
+      // printf("Lambda before norm\n");
+      // for (int ii = 0; ii < M->rank; ++ii) {
+      //   printf("%f\t", M->lambda[ii]);
+      // }
+      
+      // printf("\n");
       if(i == 0) {
         KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
       } else {
         KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
       }
-
+      // printf("Lambda after norm\n");
+      // for (int ii = 0; ii < M->rank; ++ii) {
+      //   printf("%f\t", M->lambda[i]);
+      // }
+      // printf("\n");
       // Update the Gram matrices
       update_gram(grams[j], M, j);
-      // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
 
+      // Copy old factor matrix to new
+      memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
+      // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
+
+      int factor_mat_size = rank * M->dims[j];
+      delta += mat_norm_diff(prev_M->U[j], M->U[j], factor_mat_size) / (mat_norm(M->U[j], factor_mat_size) + 1e-12);
+
+      free(fm_buf);
     } // for each mode
 
+
+    for (IType x = 0; x < rank * rank; ++x) {
+      grams[streaming_mode]->vals[x] *= 0.95;
+    }
     // calculate fit
     fit = cpd_fit(X, M, grams, scratch);
+    free(scratch);
+
+    // printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
+    
+    /*
+    if ((i > 0) && fabs(prev_delta - delta) < epsilon) {
+      prev_delta = 0.0;
+      break;
+    } else {
+      prev_delta = delta;
+    }
+    */
 
     // if fit - oldfit < epsilon, quit
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
@@ -427,6 +469,7 @@ void streaming_cpd(
              fabs(prev_fit - fit));
     }
     prev_fit = fit;
+
   } // for max_iters
 
   // cleanup
@@ -435,12 +478,10 @@ void streaming_cpd(
     free(lambda_sp[t]);
   }
   free(lambda_sp);
-  free(scratch);
   for(IType i = 0; i < max_mode_len; i++) {
     omp_destroy_lock(&(writelocks[i]));
   }
   free(writelocks);
-  destroy_grams(grams, M);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
@@ -510,7 +551,6 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
       // Update the Gram matrices
       update_gram(grams[j], M, j);
       // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
-
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
     } // for each mode
 
@@ -528,7 +568,6 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
     }
     prev_fit = fit;
   } // for max_iters
-
   // cleanup
   #pragma omp parallel for
   for (IType t = 0; t < nthreads; ++t) {
@@ -617,10 +656,11 @@ double cpd_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FType* U_mttkrp
 
   // Calculate residual using the above
   FType norm_residual = normX + normU - 2 * inner_prod;
+  // printf("normX: %f, normU: %f, inner_prod: %f\n", normX, normU, inner_prod);
   if (norm_residual > 0.0) {
     norm_residual = sqrt(norm_residual);
   }
-  FType ret = 1 - (norm_residual / sqrt(normX));
+  FType ret = norm_residual / sqrt(normX);
 
   // free memory
   free(accum);
@@ -725,6 +765,7 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   if(mode == 0) {
     m = 1;
   }
+
   memcpy(grams[mode]->vals, grams[m]->vals, sizeof(FType) * rank * rank);
 
   #pragma unroll

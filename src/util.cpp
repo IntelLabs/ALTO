@@ -100,3 +100,35 @@ void my_matmul(
         beta,
         C, LDC);
 }
+
+double mat_norm_diff(FType * matA, FType * matB, IType size) {
+    double norm = 0.0;
+    for (int i = 0; i < size; ++i) {
+        FType diff = matA[i] - matB[i];
+        norm += diff * diff;
+    }
+    return sqrt(norm);
+}
+
+double mat_norm(FType * mat, IType size) {
+    double norm = 0.0;
+    for (int i = 0; i < size; ++i) {
+        norm += mat[i] * mat[i];
+    }
+    return sqrt(norm);
+}
+
+/* Computes the elementwise product for all other aTa matrices besidse the mode */
+void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode) {
+    // Init gram matrix
+    for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
+        out_mat->vals[i] = 1.0;
+    }
+    
+    for (IType m = 0; m < nmodes; ++m) {
+        if (m == mode) continue;
+        for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
+            out_mat->vals[i] *= aTa[mode]->vals[i];        
+        }
+    }
+};
