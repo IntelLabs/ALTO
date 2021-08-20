@@ -28,6 +28,8 @@
 #include <sched.h>
 #include <numaif.h>
 
+#define ALTO_CP_STREAM 0
+
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
 #elif ALTO_MASK_LENGTH == 128
@@ -346,7 +348,7 @@ int main(int argc, char** argv)
 		
 		Matrix ** grams;
 
-		while(!sst.last_batch() && it < 30) { // While we stream streaming tensor
+		while(!sst.last_batch()) { // While we stream streaming tensor
 
 			SparseTensor * t_batch = sst.next_batch();
 			
@@ -383,7 +385,15 @@ int main(int argc, char** argv)
 			// double fit = 0.0;
 			// fit += 
 			
+#if ALTO_CP_STREAM==1
+			AltoTensor<LIType>* AT;
+			int num_partitions = omp_get_max_threads();
+			create_alto(t_batch, &AT, num_partitions);
+
+			streaming_cpd_alto(AT, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
+#else
 			streaming_cpd(t_batch, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
+#endif
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);
@@ -403,6 +413,11 @@ int main(int argc, char** argv)
 
 			// Cleanup
 			DestroySparseTensor(t_batch);
+
+#if ALTO_CP_STREAM==1
+			destroy_alto(AT);
+#else
+#endif
 			// DestroyKruskalModel(M);
 			// destroy_alto(AT);
 			++it; // Increase iteration
