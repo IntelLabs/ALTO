@@ -14,7 +14,6 @@
 #include "alto.hpp"
 #include "cpd.hpp"
 #include "streaming_sptensor.hpp"
-#include "streaming_cpd.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -28,7 +27,7 @@
 #include <sched.h>
 #include <numaif.h>
 
-#define ALTO_CP_STREAM 0
+// #define ALTO_CP_STREAM 1
 
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
@@ -333,14 +332,28 @@ int main(int argc, char** argv)
 
 	} else {
 		// Streaming Tensor decomposition
+
+		// Set up timers
+		double t_create_alto = 0.0;
+		double t_streaming_cpd = 0.0;
+		double t_copy_factor_matrices = 0.0;
+
+		double tot_create_alto = 0.0;
+		double tot_streaming_cpd = 0.0;
+		double tot_copy_factor_matrices = 0.0;
+		
+		double t_preprocess_tensor = 0.0;
+		printf("Processing Streaming Sparse Tensor\n");
+		
+		BEGIN_TIMER(&ticks_start);
 		StreamingSparseTensor sst(X, streaming_mode);
+		END_TIMER(&ticks_end);
+
+		ELAPSED_TIME(ticks_start, ticks_end, &t_preprocess_tensor);
+		PRINT_TIMER("Preprocessing Streaming Tensor", t_preprocess_tensor);
+		
 		printf("Streaming mode: %d\n", sst._stream_mode);
 		printf("Streaming tensor nnz: %llu\n",sst._tensor->nnz);
-
-		// Init StreamingCPD model
-		StreamingCPD scpd(rank, sst._tensor->nmodes, max_iters);
-		scpd.init(); // Initialize factor matrices
-		
 
 		int it = 0;  // Keeps track of time iterations
 		KruskalModel * M; // Keeps track of current factor matrices
@@ -348,13 +361,16 @@ int main(int argc, char** argv)
 		
 		Matrix ** grams;
 
-		while(!sst.last_batch()) { // While we stream streaming tensor
 
+
+		while(!sst.last_batch() && it < 3) { // While we stream streaming tensor
 			SparseTensor * t_batch = sst.next_batch();
+			ExportSparseTensor(NULL, TEXT_FORMAT, t_batch);
 			
-			// Create according Kruskal Models Accordingly
-			// We store factor matrices in Kruskal Model form
+			BEGIN_TIMER(&ticks_start);
+			// Create kruskal models accordingly - The factor matrices are stored in kruskal model form
 			if (it == 0) {
+				// For the first iteration, create initial kruskal model
 				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
 				KruskalModelRandomInit(M, (unsigned int)seed);
 				KruskalModelNormalize(M);
@@ -370,7 +386,9 @@ int main(int argc, char** argv)
 					}
 				}
 			}
-
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_copy_factor_matrices);
+			tot_copy_factor_matrices += t_copy_factor_matrices;
 			/*
 			printf("Time dim dimensions %d has size: %d\n", streaming_mode, M->dims[streaming_mode]);
 			printf("Iteration : %d\n", it);
@@ -384,16 +402,37 @@ int main(int argc, char** argv)
 
 			// double fit = 0.0;
 			// fit += 
-			
+
+
+			/*
+			Decomposing the Streaming CPD portion of the code (Keep track of cumulative time consumed)
+			1. Computing factor matrix for streaming mode (MTTKRP, Pseudo inverse)
+			2. Computing factor matrix for all other modes (MTTKRP, Pseudo inverse)
+			3. Computing fit
+			4. Computing auxiliary stuff (aTa)
+			*/		
 #if ALTO_CP_STREAM==1
+			BEGIN_TIMER(&ticks_start);
 			AltoTensor<LIType>* AT;
 			int num_partitions = omp_get_max_threads();
+
 			create_alto(t_batch, &AT, num_partitions);
 
+			END_TIMER(&ticks_end);
+			ELAPSED_TIME(ticks_start, ticks_end, &t_create_alto);
+			tot_create_alto += t_create_alto;
+
+			BEGIN_TIMER(&ticks_start);
 			streaming_cpd_alto(AT, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
+			END_TIMER(&ticks_end);
 #else
+			BEGIN_TIMER(&ticks_start);
 			streaming_cpd(t_batch, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
+			END_TIMER(&ticks_end);
+
 #endif
+			ELAPSED_TIME(ticks_start, ticks_end, &t_streaming_cpd);
+			tot_streaming_cpd += t_streaming_cpd;
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);
@@ -404,16 +443,12 @@ int main(int argc, char** argv)
 
 			ExportKruskalModel(M, text_file_out.c_str());*/
 
-			BEGIN_TIMER(&ticks_start);
-			// cpd_alto(AT, M, max_iters, epsilon);
-			// cpd(X, M, max_iters, epsilon);
-			END_TIMER(&ticks_end);
-			ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
-			PRINT_TIMER("CPD (ALTO)", t_cpd);
+			PRINT_TIMER("Copy factor matrices", tot_copy_factor_matrices);
+			PRINT_TIMER("Create Alto", tot_create_alto);
+			PRINT_TIMER("Streaming CPD", tot_streaming_cpd);
 
 			// Cleanup
 			DestroySparseTensor(t_batch);
-
 #if ALTO_CP_STREAM==1
 			destroy_alto(AT);
 #else

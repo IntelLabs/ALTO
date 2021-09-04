@@ -47,5 +47,12 @@ void CreateSparseTensor(
 );
 
 SparseTensor * AllocSparseTensor(const int nnz, const int nmodes);
+void sptensor_write(
+  SparseTensor const * const sptensor,
+  char const * const fname);
+
+void sptensor_write_file(
+  SparseTensor const * const sptensor,
+  FILE * fout);
 
 #endif // SPTENSOR_HPP_

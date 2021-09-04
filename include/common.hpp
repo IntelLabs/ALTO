@@ -177,7 +177,7 @@ void ParMemset(void * dst, int val, size_t bytes)
 }
 
 #ifndef TIME
-#define TIME 0
+#define TIME 1
 #endif
 static inline void BEGIN_TIMER(
   uint64_t* ticks

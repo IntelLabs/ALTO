@@ -308,3 +308,36 @@ SparseTensor * AllocSparseTensor(const int nnz, const int nmodes) {
     }
     return sp;
 }
+
+void sptensor_write(
+  SparseTensor const * const sptensor,
+  char const * const fname) {
+  
+  FILE * fout;
+  if (fname == NULL || strcmp(fname, "-") == 0) {
+    fout = stdout;
+  } else {
+    if ((fout = fopen(fname, "w")) == NULL) {
+      fprintf(stderr, "SPLATT ERROR: failed to open '%s'\n.", fname);
+      return;
+    }
+  }
+  sptensor_write_file(sptensor, fout);
+  if (fout != stdout) {
+    fclose(fout);
+  }
+}
+
+void sptensor_write_file(
+  SparseTensor const * const sptensor,
+  FILE * fout)
+{
+  /* write sparse tensor in COO format*/
+  for (IType n=0; n<sptensor->nnz; ++n) {
+    for (IType m=0; m < sptensor->nmodes; ++m) {
+      fprintf(fout, "%d\t", sptensor->cidx[m][n]);
+    }
+    // Print values
+    fprintf(fout, "%f\n", sptensor->vals[n]);
+  }
+}

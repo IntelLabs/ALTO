@@ -291,6 +291,22 @@ void streaming_cpd_alto(
   fprintf(stdout, "Running ALTO CP-Stream with %d max iterations and %.2e epsilon\n",
           max_iters, epsilon);
 
+  // Timing stuff 
+	InitTSC();
+	uint64_t ticks_start = 0;
+	uint64_t ticks_end = 0;
+
+  double t_sm_mttkrp = 0.0;
+  double t_sm_backsolve = 0.0;
+  double t_m_mttkrp = 0.0;
+  double t_m_backsolve = 0.0;
+  double t_prepare_alto = 0.0;
+  double t_fit = 0.0;
+  double t_aux = 0.0;
+  double t_norm = 0.0;
+
+  int num_inner_iter = 0;
+
   int nmodes = AT->nmode;
   IType* dims = AT->dims;
   IType rank = M->rank;
@@ -339,13 +355,20 @@ void streaming_cpd_alto(
 
   Matrix * old_gram = zero_mat(rank, rank);
 
+  BEGIN_TIMER(&ticks_start);
+
   // Create local fiber copies
   FType ** ofibs = NULL;
   create_da_mem(-1, rank, AT, &ofibs);
+  
+  END_TIMER(&ticks_end);
+    
+  ELAPSED_TIME(ticks_start, ticks_end, &t_prepare_alto);
 
   // Copy G_t-1 at the begining
   memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
 
+  int tmp_iter = 0;
   for(int i = 0; i < max_iters; i++) {    
     delta = 0.0;
     // Solve for time mode (s_t)
@@ -353,8 +376,16 @@ void streaming_cpd_alto(
     memset(M->U[streaming_mode], 0, sizeof(FType) * rank);
     // MTTKRP for s_t
     // mttkrp_par(X, M, streaming_mode, writelocks);
+    BEGIN_TIMER(&ticks_start);
     mttkrp_alto_par(streaming_mode, M->U, rank, AT, NULL, ofibs);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_mttkrp);
+
+    BEGIN_TIMER(&ticks_start);
     pseudo_inverse(grams, M, streaming_mode);
+    END_TIMER(&ticks_end);
+    
+    ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
 
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     copy_upper_tri(grams[streaming_mode]);
@@ -391,13 +422,19 @@ void streaming_cpd_alto(
       // MTTKRP
       memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
       // MTTKRP results are written in M->U[j]
+
+      BEGIN_TIMER(&ticks_start);
       mttkrp_alto_par(j, M->U, rank, AT, NULL, ofibs);
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_m_mttkrp);      
 
       // mttkrp(X, M, j);
       // if it is the last mode, save the MTTKRP result for fit calculation
       if(j == nmodes - 1) {
         memcpy(scratch, M->U[j], sizeof(FType) * dims[j] * rank);
       }
+
+      BEGIN_TIMER(&ticks_start);
 
       // add historical
       Matrix * historical = zero_mat(rank, rank);
@@ -429,7 +466,13 @@ void streaming_cpd_alto(
 
       // A(n) (ata_buf)
       my_matmul(prev_M->U[j], false, ata_buf->vals, false, M->U[j], prev_M->dims[j], rank, rank, rank, 1.0);    
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_aux);      
+
+      BEGIN_TIMER(&ticks_start);
       pseudo_inverse(grams, M, j);
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_m_backsolve);
 
       // Normalize columns
       // printf("Lambda before norm\n");
@@ -438,17 +481,22 @@ void streaming_cpd_alto(
       // }
       
       // printf("\n");
+      BEGIN_TIMER(&ticks_start);
       if(i == 0) {
         KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
       } else {
         KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
       }
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_norm);
       // printf("Lambda after norm\n");
       // for (int ii = 0; ii < M->rank; ++ii) {
       //   printf("%f\t", M->lambda[i]);
       // }
       // printf("\n");
       // Update the Gram matrices
+      BEGIN_TIMER(&ticks_start);
+
       update_gram(grams[j], M, j);
 
       // Copy old factor matrix to new
@@ -456,6 +504,8 @@ void streaming_cpd_alto(
       // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
 
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_aux); 
       int factor_mat_size = rank * M->dims[j];
       delta += mat_norm_diff(prev_M->U[j], M->U[j], factor_mat_size) / (mat_norm(M->U[j], factor_mat_size) + 1e-12);
 
@@ -468,7 +518,11 @@ void streaming_cpd_alto(
     }
     // calculate fit
     // fit = cpd_fit(X, M, grams, scratch);
+    BEGIN_TIMER(&ticks_start);
+    
     fit = cpd_fit_alto(AT, M, grams, scratch, normAT);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_fit);
 
     free(scratch);
 
@@ -481,6 +535,7 @@ void streaming_cpd_alto(
       prev_delta = delta;
     }
     */
+    tmp_iter = i;
 
     // if fit - oldfit < epsilon, quit
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
@@ -494,6 +549,7 @@ void streaming_cpd_alto(
     prev_fit = fit;
 
   } // for max_iters
+  num_inner_iter += tmp_iter;
 
   // cleanup
   #pragma omp parallel for
@@ -505,6 +561,8 @@ void streaming_cpd_alto(
     omp_destroy_lock(&(writelocks[i]));
   }
   free(writelocks);
+  printf("Time: %d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", num_inner_iter, t_sm_mttkrp, t_sm_backsolve, t_m_mttkrp, t_m_backsolve, t_fit, t_aux, t_norm, t_prepare_alto);
+
 }
 
 
@@ -514,9 +572,24 @@ void streaming_cpd(
   int max_iters, double epsilon, 
   int streaming_mode, int iteration)
 {
-  fprintf(stdout, "Running CP-Stream with %d max iterations and %.2e epsilon\n",
-          max_iters, epsilon);
+  fprintf(stdout, "Running CP-Stream (iter: %d) with %d max iterations and %.2e epsilon\n",
+          iteration, max_iters, epsilon);
 
+  // Timing stuff 
+	InitTSC();
+	uint64_t ticks_start = 0;
+	uint64_t ticks_end = 0;
+
+  double t_sm_mttkrp = 0.0;
+  double t_sm_backsolve = 0.0;
+  double t_m_mttkrp = 0.0;
+  double t_m_backsolve = 0.0;
+  double t_fit = 0.0;
+  double t_aux = 0.0;
+  double t_norm = 0.0;
+
+  int num_inner_iter = 0;
+  
   int nmodes = X->nmodes;
   IType* dims = X->dims;
   IType rank = M->rank;
@@ -558,14 +631,23 @@ void streaming_cpd(
   // Copy G_t-1 at the begining
   memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
 
+  int tmp_iter = 0;
   for(int i = 0; i < max_iters; i++) {    
     delta = 0.0;
     // Solve for time mode (s_t)
     // set to zero
     memset(M->U[streaming_mode], 0, sizeof(FType) * rank);
-    // MTTKRP for s_t
+
+    BEGIN_TIMER(&ticks_start);
     mttkrp_par(X, M, streaming_mode, writelocks);
+		END_TIMER(&ticks_end);
+    
+		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_mttkrp);
+    // MTTKRP for s_t
+    BEGIN_TIMER(&ticks_start);
     pseudo_inverse(grams, M, streaming_mode);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
 
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     copy_upper_tri(grams[streaming_mode]);
@@ -601,14 +683,18 @@ void streaming_cpd(
 
       // MTTKRP
       memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
-      // MTTKRP results are written in M->U[j]
+      BEGIN_TIMER(&ticks_start);
       mttkrp_par(X, M, j, writelocks);
+		  END_TIMER(&ticks_end);
+		  ELAPSED_TIME(ticks_start, ticks_end, &t_m_mttkrp);
+      // MTTKRP results are written in M->U[j]
       // mttkrp(X, M, j);
       // if it is the last mode, save the MTTKRP result for fit calculation
       if(j == nmodes - 1) {
         memcpy(scratch, M->U[j], sizeof(FType) * dims[j] * rank);
       }
 
+      BEGIN_TIMER(&ticks_start);
       // add historical
       Matrix * historical = zero_mat(rank, rank);
       Matrix * ata_buf = zero_mat(rank, rank);
@@ -639,7 +725,13 @@ void streaming_cpd(
 
       // A(n) (ata_buf)
       my_matmul(prev_M->U[j], false, ata_buf->vals, false, M->U[j], prev_M->dims[j], rank, rank, rank, 1.0);    
+		  END_TIMER(&ticks_end);
+		  ELAPSED_TIME(ticks_start, ticks_end, &t_aux);
+
+      BEGIN_TIMER(&ticks_start);
       pseudo_inverse(grams, M, j);
+		  END_TIMER(&ticks_end);
+		  ELAPSED_TIME(ticks_start, ticks_end, &t_m_backsolve);
 
       // Normalize columns
       // printf("Lambda before norm\n");
@@ -648,26 +740,33 @@ void streaming_cpd(
       // }
       
       // printf("\n");
+
+      BEGIN_TIMER(&ticks_start);
       if(i == 0) {
         KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
       } else {
         KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
       }
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_norm);
       // printf("Lambda after norm\n");
       // for (int ii = 0; ii < M->rank; ++ii) {
       //   printf("%f\t", M->lambda[i]);
       // }
       // printf("\n");
       // Update the Gram matrices
+      BEGIN_TIMER(&ticks_start);
       update_gram(grams[j], M, j);
 
       // Copy old factor matrix to new
       memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
       // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
+      END_TIMER(&ticks_end);
+      ELAPSED_TIME(ticks_start, ticks_end, &t_aux);      
 
       int factor_mat_size = rank * M->dims[j];
-      delta += mat_norm_diff(prev_M->U[j], M->U[j], factor_mat_size) / (mat_norm(M->U[j], factor_mat_size) + 1e-12);
+      // delta += mat_norm_diff(prev_M->U[j], M->U[j], factor_mat_size) / (mat_norm(M->U[j], factor_mat_size) + 1e-12);
 
       free(fm_buf);
     } // for each mode
@@ -677,7 +776,12 @@ void streaming_cpd(
       grams[streaming_mode]->vals[x] *= 0.95;
     }
     // calculate fit
+    BEGIN_TIMER(&ticks_start);
     fit = cpd_fit(X, M, grams, scratch);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_fit);
+
+    // PrintMatrix("gram matrix for streaming mode", grams[streaming_mode]);
     free(scratch);
 
     // printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
@@ -691,17 +795,18 @@ void streaming_cpd(
     */
 
     // if fit - oldfit < epsilon, quit
+    tmp_iter = i;
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
-      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+      printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
              fabs(prev_fit - fit));
       break;
     } else {
-      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+      printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
              fabs(prev_fit - fit));
     }
     prev_fit = fit;
-
   } // for max_iters
+  num_inner_iter += tmp_iter;
 
   // cleanup
   #pragma omp parallel for
@@ -713,6 +818,8 @@ void streaming_cpd(
     omp_destroy_lock(&(writelocks[i]));
   }
   free(writelocks);
+
+  printf("Time: %d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", num_inner_iter, t_sm_mttkrp, t_sm_backsolve, t_m_mttkrp, t_m_backsolve, t_fit, t_aux, t_norm);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

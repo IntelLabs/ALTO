@@ -74,6 +74,7 @@ StreamingSparseTensor::StreamingSparseTensor(
     // First sort tensor based on streaming mode
     tensor_sort(_tensor, _stream_mode);
 
+    ExportSparseTensor(NULL, TEXT_FORMAT, _tensor);
     for (int m = 0; m < _tensor->nmodes; ++m) {
         _prev_dim[m] = 0;
     }
@@ -81,6 +82,7 @@ StreamingSparseTensor::StreamingSparseTensor(
     _perm = perm_alloc(_tensor->dims, _tensor->nmodes);
 
     // Store permutation info
+    #pragma omp parallel for schedule(static, 1)
     for (int m = 0; m < _tensor->nmodes; ++m) {
         IType * const perm = _perm->perms[m];
         IType * const iperm = _perm->iperms[m];
