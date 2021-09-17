@@ -10,7 +10,7 @@ void PrintMatrix(char *name, Matrix * M)
 	fprintf(stderr,"%s:\n", name);
     for (size_t i = 0; i < m; i++) {
         for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%.6g ", M->vals[i * n + j]);
+        	fprintf(stderr,"%e ", M->vals[i * n + j]);
         }
         fprintf(stderr,"\n");
     }

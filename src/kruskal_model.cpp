@@ -152,7 +152,7 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_, int streaming_mode)
     *M_ = M;
 }
 */
-void GrowKruskalModel(IType *dims, KruskalModel **M_)
+void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueType_)
 {
     IType mode = (*M_)->mode;
     IType rank = (*M_)->rank;
@@ -184,9 +184,20 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_)
         // Fill exceeding values with zeros
         int added_nrows = dims[n] - old_dims[n];
         if (added_nrows > 0) { // If we need to add more rows
-            for (int r = 0; r < added_nrows * rank; ++r) {
-                // Set all added entries to 0.0
-                M->U[n][old_dims[n] * rank + r] = 0.0;
+            int seed = time(NULL);
+            srand(seed);
+            #pragma omp parallel
+            {
+                unsigned int local_seed = seed + omp_get_thread_num();
+                #pragma omp for simd schedule(static)
+                for (int r = 0; r < added_nrows * rank; ++r) {
+                    if (FillValueType_ == FILL_RANDOM) {
+                        M->U[n][old_dims[n] * rank + r] = (FType) rand_r (&local_seed) / RAND_MAX;;
+                    } 
+                    else if (FillValueType_ == FILL_ZEROS) {
+                        M->U[n][old_dims[n] * rank + r] = 0.0;
+                    }
+                }
             }
         }
     }
@@ -261,7 +272,26 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
             unsigned int local_seed = seed + omp_get_thread_num();
             #pragma omp for simd schedule(static)
             for (IType i = 0; i < M->dims[n] * M->rank; i++) {
-                M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
+                // M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
+                M->U[n][i] = (FType) 1.0;
+
+            }
+        }
+    }
+}
+
+void KruskalModelZeroInit(KruskalModel *M)
+{
+    for (IType i = 0; i < M->rank; i++) {
+        M->lambda[i] = (FType) 0.0;
+    }
+
+    for (int n = 0; n < M->mode; n++) {
+        #pragma omp parallel
+        {
+            #pragma omp for simd schedule(static)
+            for (IType i = 0; i < M->dims[n] * M->rank; i++) {
+                M->U[n][i] = (FType) 0.0;
             }
         }
     }

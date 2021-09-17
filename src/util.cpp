@@ -47,6 +47,10 @@ Matrix * zero_mat(IType nrows, IType ncols) {
     return mat;
 };
 
+void grow_mat(IType nrows, IType ncols) {
+    // Add implementation
+}
+
 void free_mat(Matrix * mat) {
     if (mat == NULL) return;
     free(mat->vals);

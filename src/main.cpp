@@ -360,32 +360,38 @@ int main(int argc, char** argv)
 		KruskalModel * prev_M; // Keeps track of previous factor matrices
 		
 		Matrix ** grams;
+		
+		// concatencated s_t's
+		Matrix * global_time = zero_mat(1, rank);
 
-
-
-		while(!sst.last_batch() && it < 3) { // While we stream streaming tensor
+		while(!sst.last_batch() && it < 1) { // While we stream streaming tensor
 			SparseTensor * t_batch = sst.next_batch();
-			ExportSparseTensor(NULL, TEXT_FORMAT, t_batch);
+			// ExportSparseTensor(NULL, TEXT_FORMAT, t_batch);
 			
 			BEGIN_TIMER(&ticks_start);
 			// Create kruskal models accordingly - The factor matrices are stored in kruskal model form
 			if (it == 0) {
 				// For the first iteration, create initial kruskal model
 				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
+				CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &prev_M);
+				
 				KruskalModelRandomInit(M, (unsigned int)seed);
-				KruskalModelNormalize(M);
-				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
-
+				KruskalModelZeroInit(prev_M);
+				
+				// Override values for M->U[stream_mode] with last row of global_time matrix
+				M->U[streaming_mode] = &(global_time->vals[it*rank]);
 				init_grams(&grams, M);
 			} else {
-				GrowKruskalModel(t_batch->dims, &M); // Expands the kruskal model to accomodate new dimensions
-				CopyKruskalModel(&prev_M, &M); // Copy previous kruskal model to new
+				GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
+				GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
 				for (int j = 0; j < M->mode; ++j) {
 					if (j != streaming_mode) {
 						update_gram(grams[j], M, j);
 					}
 				}
 			}
+
+
 			END_TIMER(&ticks_end);
 			ELAPSED_TIME(ticks_start, ticks_end, &t_copy_factor_matrices);
 			tot_copy_factor_matrices += t_copy_factor_matrices;
@@ -431,6 +437,11 @@ int main(int argc, char** argv)
 			END_TIMER(&ticks_end);
 
 #endif
+
+			// Printing Kruskal Models
+			// PrintKruskalModel(M);
+			// PrintKruskalModel(prev_M);
+
 			ELAPSED_TIME(ticks_start, ticks_end, &t_streaming_cpd);
 			tot_streaming_cpd += t_streaming_cpd;
 			// PrintKruskalModel(M);
