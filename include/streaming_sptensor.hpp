@@ -4,6 +4,8 @@
 #include "common.hpp"
 #include "sptensor.hpp"
 #include "util.hpp"
+#include "sort.hpp"
+
 
 class StreamingSparseTensor {
     public:

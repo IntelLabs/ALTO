@@ -72,9 +72,14 @@ StreamingSparseTensor::StreamingSparseTensor(
     _tensor = sp; // Load tensor
 
     // First sort tensor based on streaming mode
-    tensor_sort(_tensor, _stream_mode);
+    // tensor_sort(_tensor, _stream_mode);
 
-    ExportSparseTensor(NULL, TEXT_FORMAT, _tensor);
+    // Straight out of SPLATT codebase
+    // Much faster and gives same results as SPLATT 
+    // which helps in debugging
+    tt_sort(_tensor, _stream_mode, NULL);
+
+    // ExportSparseTensor(NULL, TEXT_FORMAT, _tensor);
     for (int m = 0; m < _tensor->nmodes; ++m) {
         _prev_dim[m] = 0;
     }
@@ -150,6 +155,8 @@ SparseTensor * StreamingSparseTensor::next_batch() {
     #pragma omp parallel for schedule(static)
     for(IType n=0; n < nnz; ++n) {
         t_batch->cidx[_stream_mode][n] = 0;
+        // Just to dump parts of tensor
+        // t_batch->cidx[_stream_mode][n] = _batch_num;
     }
 
     // Need to figure out how to modify the dims and cidx for the batch tensors
