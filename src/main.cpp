@@ -29,7 +29,6 @@
 
 // #define ALTO_CP_STREAM 1
 
-
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
 #elif ALTO_MASK_LENGTH == 128

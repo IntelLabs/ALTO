@@ -8,7 +8,7 @@
 
 #include "kruskal_model.hpp"
 
-#define DEBUG 1
+//#define DEBUG 1
 
 
 void ExportKruskalModel(KruskalModel *M, char *file_path)

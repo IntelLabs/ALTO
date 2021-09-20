@@ -24,7 +24,7 @@ typedef size_t MKL_INT;
 #include "kruskal_model.hpp"
 #include "alto.hpp"
 
-#define DEBUG 1
+// #define DEBUG 1
 
 // Adaptive Linearized Tensor Order (ALTO) APIs
 template <typename LIT>
@@ -1272,8 +1272,10 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   }
   // PrintFPMatrix("V", rank, rank, grams[mode], rank);
 
-  // FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
-  // assert(scratch);
+  FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
+  assert(scratch);
+
+  memcpy(scratch, grams[mode]->vals, sizeof(FType) * rank * rank);
 
   // Do manual transpose for gram matrix so that we use col_major instead of row_major
   
@@ -1291,7 +1293,6 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   // memcpy(grams[mode]->vals, vals, rank * rank * sizeof(FType));
   
   // Backup grams[mode] in case Cholesky fails
-  // memcpy(scratch, vals, sizeof(FType) * rank * rank);
 
   // free(vals);
 
@@ -1362,10 +1363,6 @@ for (int r = 0; r < rank; ++r) {
     free(work);
     free(jpvt);
   }
-
-  // Restore gram
-  // Why are we restoring the gram matrix????
-  // memcpy(grams[mode]->vals, scratch, sizeof(FType) * rank * rank);
 
   // cleanup
   free(scratch);
