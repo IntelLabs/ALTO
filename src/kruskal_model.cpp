@@ -8,6 +8,9 @@
 
 #include "kruskal_model.hpp"
 
+#define DEBUG 1
+
+
 void ExportKruskalModel(KruskalModel *M, char *file_path)
 {
     // factor matrices
@@ -272,9 +275,11 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
             unsigned int local_seed = seed + omp_get_thread_num();
             #pragma omp for simd schedule(static)
             for (IType i = 0; i < M->dims[n] * M->rank; i++) {
-                // M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
+                #if DEBUG == 1
                 M->U[n][i] = (FType) 1.0;
-
+                #else
+                M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
+                #endif
             }
         }
     }

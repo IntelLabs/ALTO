@@ -29,6 +29,7 @@
 
 // #define ALTO_CP_STREAM 1
 
+
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
 #elif ALTO_MASK_LENGTH == 128
@@ -364,7 +365,7 @@ int main(int argc, char** argv)
 		// concatencated s_t's
 		Matrix * global_time = zero_mat(1, rank);
 
-		while(!sst.last_batch() && it < 1) { // While we stream streaming tensor
+		while(!sst.last_batch() && it < 5) { // While we stream streaming tensor
 			SparseTensor * t_batch = sst.next_batch();
 			// ExportSparseTensor(NULL, TEXT_FORMAT, t_batch);
 			
@@ -390,7 +391,6 @@ int main(int argc, char** argv)
 					}
 				}
 			}
-
 
 			END_TIMER(&ticks_end);
 			ELAPSED_TIME(ticks_start, ticks_end, &t_copy_factor_matrices);

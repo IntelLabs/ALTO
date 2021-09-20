@@ -9,9 +9,13 @@ void PrintMatrix(char *name, Matrix * M)
   
 	fprintf(stderr,"%s:\n", name);
     for (size_t i = 0; i < m; i++) {
+        fprintf(stderr, "[");
         for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%e ", M->vals[i * n + j]);
+        	fprintf(stderr,"%e", M->vals[i * n + j]);
+            if (j != n-1) fprintf(stderr, ", ");
+            if (j == n-1) fprintf(stderr, "],");
         }
+
         fprintf(stderr,"\n");
     }
     fprintf(stderr,"\n");

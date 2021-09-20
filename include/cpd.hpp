@@ -24,6 +24,8 @@ typedef size_t MKL_INT;
 #include "kruskal_model.hpp"
 #include "alto.hpp"
 
+#define DEBUG 1
+
 // Adaptive Linearized Tensor Order (ALTO) APIs
 template <typename LIT>
 void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilon);
@@ -615,8 +617,9 @@ void streaming_cpd(
     }
   }
 
+#if DEBUG == 1
   PrintKruskalModel(M);
-
+#endif
   // set up OpenMP locks
   IType max_mode_len = 0;
   for(int i = 0; i < M->mode; i++) {
@@ -654,7 +657,9 @@ void streaming_cpd(
     mttkrp_par(X, M, streaming_mode, writelocks);
 		END_TIMER(&ticks_end);
 
+#if DEBUG == 1
     PrintFPMatrix("mttkrp for s_t", M->U[streaming_mode], 1, rank);
+#endif
 		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_mttkrp);
     // MTTKRP for s_t
     BEGIN_TIMER(&ticks_start);
@@ -666,11 +671,13 @@ void streaming_cpd(
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
 
+#if DEBUG == 1
     printf("s_t\n");
     for (int r = 0; r < rank; ++r) { 
       printf("%e\t", M->U[streaming_mode][r]);
     }
     printf("\n");
+#endif
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     copy_upper_tri(grams[streaming_mode]);
     // Copy newly computed gram matrix G_t to old_gram
@@ -804,7 +811,7 @@ void streaming_cpd(
     // PrintMatrix("gram matrix for streaming mode", grams[streaming_mode]);
     free(scratch);
 
-    
+#if 1
     printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
     
     if ((i > 0) && fabs(prev_delta - delta) < epsilon) {
@@ -813,10 +820,10 @@ void streaming_cpd(
     } else {
       prev_delta = delta;
     }
-    
+#else
     // if fit - oldfit < epsilon, quit
     tmp_iter = i;
-    /*
+    
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
       printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
              fabs(prev_fit - fit));
@@ -826,7 +833,7 @@ void streaming_cpd(
              fabs(prev_fit - fit));
     }
     prev_fit = fit;
-    */
+  #endif
   } // for max_iters
   num_inner_iter += tmp_iter;
 
@@ -1254,7 +1261,6 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   }
 
   memcpy(grams[mode]->vals, grams[m]->vals, sizeof(FType) * rank * rank);
-
   #pragma unroll
   for(IType i = m + 1; i < nmodes; i++) {
     if(i != mode) {
@@ -1266,31 +1272,40 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   }
   // PrintFPMatrix("V", rank, rank, grams[mode], rank);
 
-  FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
-  assert(scratch);
+  // FType* scratch = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
+  // assert(scratch);
 
   // Do manual transpose for gram matrix so that we use col_major instead of row_major
   
-  /*
-  double * vals = (double*) AlignedMalloc(sizeof(double) * rank * rank);
-  assert(vals);
+  // double * vals = (double*) AlignedMalloc(sizeof(double) * rank * rank);
+  // assert(vals);
 
-  #pragma unroll
-  for (IType i = 0; i < rank; ++i) {
-    #pragma omp simd 
-    for (IType j = 0; j < rank; ++j) {
-      vals[j * rank + i] = grams[mode]->vals[i * rank + j];
-    }
-  }
+  // #pragma unroll
+  // for (IType i = 0; i < rank; ++i) {
+  //   #pragma omp simd 
+  //   for (IType j = 0; j < rank; ++j) {
+  //     vals[j * rank + i] = grams[mode]->vals[i * rank + j];
+  //   }
+  // }
   
-  memcpy(grams[mode]->vals, vals, rank * rank * sizeof(FType));
+  // memcpy(grams[mode]->vals, vals, rank * rank * sizeof(FType));
+  
   // Backup grams[mode] in case Cholesky fails
-  memcpy(scratch, vals, sizeof(FType) * rank * rank);
+  // memcpy(scratch, vals, sizeof(FType) * rank * rank);
 
-  free(vals);
-  */
+  // free(vals);
 
+// Apply frobenious norm
+// This stabilizes (?) the cholesky factorization of the matrix
+// For now just use a generic value (1e-3)
+
+for (int r = 0; r < rank; ++r) {
+  grams[mode]->vals[r * rank + r] += 1e-3;
+}
+
+#if DEBUG == 1
   PrintMatrix("A matrix", grams[mode]);
+#endif
   // Try using Cholesky to find the pseudoinvsere of V
   // Setup parameters for LAPACK calls
   // convert IType to int
@@ -1298,20 +1313,22 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
   lapack_int _rank = (lapack_int)rank;
   lapack_int I = (lapack_int)M->dims[mode];
   lapack_int info;
-
-  POTRF(&uplo, &_rank, grams[mode]->vals, &_rank, &info);
-
+  DPOTRF(&uplo, &_rank, grams[mode]->vals, &_rank, &info);
+  
   if(info == 0) {
+#if DEBUG == 1
     PrintMatrix("cholesky", grams[mode]);
     PrintFPMatrix("rhs", M->U[mode], I, rank);
+#endif    
     // Cholesky was successful - use it to find the pseudo_inverse and multiply
     // it with the MTTKRP result
     POTRS(&uplo, &_rank, &I, grams[mode]->vals, &_rank,
           M->U[mode], &_rank, &info);
 
+#if DEBUG == 1
     PrintMatrix("after - cholesky", grams[mode]);
     PrintFPMatrix("after - rhs", M->U[mode], I, rank);
-
+#endif
   } else {
     // Otherwise use rank-deficient solver, GELSY
     // Restore V
@@ -1345,8 +1362,6 @@ static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode)
     free(work);
     free(jpvt);
   }
-
-  // PrintFPMatrix("Factor Matrix", M->dims[mode], rank, M->U[mode], rank);
 
   // Restore gram
   // Why are we restoring the gram matrix????
@@ -1392,7 +1407,7 @@ static void update_gram(Matrix * gram, KruskalModel* M, int mode)
   FType beta = 0.0;
 
   CBLAS_ORDER layout = CblasRowMajor;
-  CBLAS_UPLO uplo = CblasLower;
+  CBLAS_UPLO uplo = CblasUpper;
   CBLAS_TRANSPOSE trans = CblasTrans;
   SYRK(layout, uplo, trans, n, m, alpha, M->U[mode], lda, beta, gram->vals, ldc);
 }
