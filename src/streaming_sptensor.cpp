@@ -78,7 +78,6 @@ StreamingSparseTensor::StreamingSparseTensor(
     // Much faster and gives same results as SPLATT 
     // which helps in debugging
     tt_sort(_tensor, _stream_mode, NULL);
-
     // ExportSparseTensor(NULL, TEXT_FORMAT, _tensor);
     for (int m = 0; m < _tensor->nmodes; ++m) {
         _prev_dim[m] = 0;

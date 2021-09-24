@@ -60,8 +60,11 @@ void PrintFPMatrix(char *name, FType * a, size_t m, size_t n)
 {
 	fprintf(stderr,"%s:\n", name);
     for (size_t i = 0; i < m; i++) {
+        fprintf(stderr, "[");
         for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%.6g ", a[i * n + j]);
+        	fprintf(stderr,"%e", a[i * n + j]);
+          if (j != n-1) fprintf(stderr, ", ");
+          if (j == n-1) fprintf(stderr, "],");
         }
         fprintf(stderr,"\n");
     }

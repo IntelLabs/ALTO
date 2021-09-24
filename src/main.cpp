@@ -28,6 +28,7 @@
 #include <numaif.h>
 
 // #define ALTO_CP_STREAM 1
+// #define DEBUG 1
 
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
@@ -364,7 +365,11 @@ int main(int argc, char** argv)
 		// concatencated s_t's
 		Matrix * global_time = zero_mat(1, rank);
 
+#if DEBUG == 1
 		while(!sst.last_batch() && it < 5) { // While we stream streaming tensor
+#else
+		while(!sst.last_batch()) { // While we stream streaming tensor
+#endif		
 			SparseTensor * t_batch = sst.next_batch();
 			// ExportSparseTensor(NULL, TEXT_FORMAT, t_batch);
 			

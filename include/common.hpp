@@ -39,12 +39,13 @@ typedef double FType;
 #define POTRF  dpotrf_
 #define POTRS  dpotrs_
 #define GELSY  dgelsy_
+#define GELSS  dgelss_
 #define SYRK   cblas_dsyrk
 #else
 typedef float FType;
 #define POTRF  spotrf
 #define POTRS  spotrs
-#define GELSY  sgelsy
+#define GELSY  sgelss
 #define SYRK   cblas_ssyrk
 #endif
 

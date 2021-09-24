@@ -336,6 +336,7 @@ static void p_counting_sort_hybrid(
   IType nslices = tt->dims[m];
 
   IType * new_ind[MAX_NUM_MODES];
+
   for(IType i = 0; i < tt->nmodes; ++i) {
     if(i != m) {
       new_ind[i] = (IType*)malloc(tt->nnz * sizeof(**new_ind));
@@ -345,7 +346,6 @@ static void p_counting_sort_hybrid(
 
   IType * histogram_array = (IType*)malloc(
       (nslices * omp_get_max_threads() + 1) * sizeof(*histogram_array));
-
   #pragma omp parallel
   {
     int nthreads = omp_get_num_threads();
@@ -419,7 +419,6 @@ static void p_counting_sort_hybrid(
       }
     }
   } /* omp parallel */
-
   for(IType i = 0; i < tt->nmodes; ++i) {
     if(i != m) {
       free(tt->cidx[i]);
@@ -443,6 +442,7 @@ static void p_counting_sort_hybrid(
     }
 
   } else if(tt->nmodes == 4) {
+
     #pragma omp parallel for schedule(dynamic)
     for(IType i = 0; i < nslices; ++i) {
       p_tt_quicksort3(tt, cmplt+1, histogram_array[i], histogram_array[i + 1]);
@@ -450,7 +450,6 @@ static void p_counting_sort_hybrid(
         tt->cidx[m][j] = i;
       }
     }
-
   } else {
     /* shift cmplt left one time, then do normal quicksort */
     IType saved = cmplt[0];
@@ -473,7 +472,6 @@ static void p_counting_sort_hybrid(
 
   free(histogram_array);
 }
-
 
 
 void tt_sort(
@@ -503,7 +501,9 @@ void tt_sort_range(
   }
 
   if(start == 0 && end == tt->nnz) {
-    p_counting_sort_hybrid(tt, cmplt);
+      p_tt_quicksort(tt, cmplt, start, end);
+      // Causes bugs in certain datasets
+      // p_counting_sort_hybrid(tt, cmplt);
   /* sort a subtensor */
   } else {
     if(tt->nmodes == 3) {
@@ -512,7 +512,6 @@ void tt_sort_range(
       p_tt_quicksort(tt, cmplt, start, end);
     }
   }
-
 
   if(dim_perm == NULL) {
     free(cmplt);
