@@ -27,7 +27,7 @@
 #include <sched.h>
 #include <numaif.h>
 
-// #define ALTO_CP_STREAM 1
+#define ALTO_CP_STREAM 1
 // #define DEBUG 1
 
 #if ALTO_MASK_LENGTH == 64
@@ -333,7 +333,6 @@ int main(int argc, char** argv)
 
 	} else {
 		// Streaming Tensor decomposition
-
 		// Set up timers
 		double t_create_alto = 0.0;
 		double t_streaming_cpd = 0.0;
@@ -399,6 +398,7 @@ int main(int argc, char** argv)
 			END_TIMER(&ticks_end);
 			ELAPSED_TIME(ticks_start, ticks_end, &t_copy_factor_matrices);
 			tot_copy_factor_matrices += t_copy_factor_matrices;
+
 			/*
 			printf("Time dim dimensions %d has size: %d\n", streaming_mode, M->dims[streaming_mode]);
 			printf("Iteration : %d\n", it);
@@ -410,22 +410,29 @@ int main(int argc, char** argv)
 
 			PrintTensorInfo(rank, max_iters, t_batch);
 
-			// double fit = 0.0;
-			// fit += 
-
-
 			/*
 			Decomposing the Streaming CPD portion of the code (Keep track of cumulative time consumed)
 			1. Computing factor matrix for streaming mode (MTTKRP, Pseudo inverse)
 			2. Computing factor matrix for all other modes (MTTKRP, Pseudo inverse)
 			3. Computing fit
 			4. Computing auxiliary stuff (aTa)
-			*/		
+			*/
+
 #if ALTO_CP_STREAM==1
 			BEGIN_TIMER(&ticks_start);
 			AltoTensor<LIType>* AT;
 			int num_partitions = omp_get_max_threads();
 
+			int nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
+
+
+			while (nnz_ptrn < 12) {
+				// Insufficient nnz per partition
+				printf("Insufficient nnz per partition: %d ... Reducing # of partitions... \n", nnz_ptrn);
+				num_partitions /= 2;
+				nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
+			}
+			
 			create_alto(t_batch, &AT, num_partitions);
 
 			END_TIMER(&ticks_end);
@@ -439,7 +446,6 @@ int main(int argc, char** argv)
 			BEGIN_TIMER(&ticks_start);
 			streaming_cpd(t_batch, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
 			END_TIMER(&ticks_end);
-
 #endif
 
 			// Printing Kruskal Models

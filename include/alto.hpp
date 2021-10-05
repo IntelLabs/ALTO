@@ -295,7 +295,6 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
                     if (fib_reuse > MIN_FIBER_REUSE) {
                         Interval const intvl = at->prtn_intervals[p * nmode + n];
                         IType const mode_fibs = intvl.stop - intvl.start + 1;
-                        // printf("if: num_fibs: %llu, %llu\n", num_fibs, mode_fibs);
                         num_fibs = std::max(num_fibs, mode_fibs);
                     }
                 }
@@ -317,8 +316,9 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
 #endif
                 assert(_ofibs[p]);
             }
-            else
+            else {
                 _ofibs[p] = NULL;
+            }
             //printf("p%d: storage=%f MB\n", p, ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0));
             total_storage += ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0);
         } // nprtn

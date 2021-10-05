@@ -361,6 +361,9 @@ void streaming_cpd_alto(
 
   Matrix * old_gram = zero_mat(rank, rank);
 
+  // Copy G_t-1 at the begining
+  memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
+
   BEGIN_TIMER(&ticks_start);
 
   // Create local fiber copies
@@ -388,7 +391,8 @@ void streaming_cpd_alto(
 		ELAPSED_TIME(ticks_start, ticks_end, &t_sm_mttkrp);
 
     BEGIN_TIMER(&ticks_start);
-    pseudo_inverse(grams, M, streaming_mode);
+    pseudo_inverse_stream(grams, M, streaming_mode, streaming_mode);
+
     END_TIMER(&ticks_end);
     
     ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
@@ -431,6 +435,7 @@ void streaming_cpd_alto(
 
       BEGIN_TIMER(&ticks_start);
       mttkrp_alto_par(j, M->U, rank, AT, NULL, ofibs);
+
       END_TIMER(&ticks_end);
       ELAPSED_TIME(ticks_start, ticks_end, &t_m_mttkrp);      
 
@@ -476,7 +481,8 @@ void streaming_cpd_alto(
       ELAPSED_TIME(ticks_start, ticks_end, &t_aux);      
 
       BEGIN_TIMER(&ticks_start);
-      pseudo_inverse(grams, M, j);
+      pseudo_inverse_stream(
+        grams, M, j, streaming_mode);
       END_TIMER(&ticks_end);
       ELAPSED_TIME(ticks_start, ticks_end, &t_m_backsolve);
 
@@ -504,9 +510,6 @@ void streaming_cpd_alto(
       BEGIN_TIMER(&ticks_start);
 
       update_gram(grams[j], M, j);
-
-      // Copy old factor matrix to new
-      memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
       // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
 
@@ -518,10 +521,6 @@ void streaming_cpd_alto(
       free(fm_buf);
     } // for each mode
 
-
-    for (IType x = 0; x < rank * rank; ++x) {
-      grams[streaming_mode]->vals[x] *= 0.95;
-    }
     // calculate fit
     // fit = cpd_fit(X, M, grams, scratch);
     BEGIN_TIMER(&ticks_start);
@@ -531,31 +530,43 @@ void streaming_cpd_alto(
 		ELAPSED_TIME(ticks_start, ticks_end, &t_fit);
 
     free(scratch);
-
-    // printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
-    /*
+    
+    tmp_iter = i;
+#if 1
+    printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
+    
     if ((i > 0) && fabs(prev_delta - delta) < epsilon) {
       prev_delta = 0.0;
       break;
     } else {
       prev_delta = delta;
     }
-    */
-    tmp_iter = i;
-
+#else
     // if fit - oldfit < epsilon, quit
+    
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
-      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+      printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
              fabs(prev_fit - fit));
       break;
     } else {
-      printf("it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
+      printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
              fabs(prev_fit - fit));
     }
     prev_fit = fit;
+  #endif
 
   } // for max_iters
   num_inner_iter += tmp_iter;
+
+  // Copy new into old factor matrix
+  for(int j = 0; j < AT->nmode; j++) {
+    memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
+  }
+
+  // incorporate forgetting factor
+  for (IType x = 0; x < rank * rank; ++x) {
+    grams[streaming_mode]->vals[x] *= 0.95;
+  }
 
   // cleanup
   #pragma omp parallel for
@@ -811,7 +822,7 @@ void streaming_cpd(
       if(i == 0) {
         KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
       } else {
-        KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
+        KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
       }
       END_TIMER(&ticks_end);
       ELAPSED_TIME(ticks_start, ticks_end, &t_norm);
@@ -850,6 +861,7 @@ void streaming_cpd(
     // PrintMatrix("gram matrix for streaming mode", grams[streaming_mode]);
     free(scratch);
 
+    tmp_iter = i;
 #if 1
     printf("it: %d delta: %e prev_delta: %e (%e diff)\n", i, delta, prev_delta, fabs(delta - prev_delta));
     
@@ -861,7 +873,6 @@ void streaming_cpd(
     }
 #else
     // if fit - oldfit < epsilon, quit
-    tmp_iter = i;
     
     if((i > 0) && (fabs(prev_fit - fit) < epsilon)) {
       printf("inner-it: %d\t fit: %g\t fit-delta: %g\n", i, fit,
