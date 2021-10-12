@@ -27,7 +27,7 @@
 #include <sched.h>
 #include <numaif.h>
 
-#define ALTO_CP_STREAM 1
+// #define ALTO_CP_STREAM 1
 // #define DEBUG 1
 
 #if ALTO_MASK_LENGTH == 64
@@ -421,18 +421,26 @@ int main(int argc, char** argv)
 #if ALTO_CP_STREAM==1
 			BEGIN_TIMER(&ticks_start);
 			AltoTensor<LIType>* AT;
+
 			int num_partitions = omp_get_max_threads();
+            // num_partitions = 1;
 
 			int nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
 
-
-			while (nnz_ptrn < 12) {
-				// Insufficient nnz per partition
-				printf("Insufficient nnz per partition: %d ... Reducing # of partitions... \n", nnz_ptrn);
-				num_partitions /= 2;
-				nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
+			int reduction_cnt = 0;
+			if (t_batch->nnz < num_partitions) {
+				num_partitions = 1;
 			}
-			
+			else {
+				while (nnz_ptrn < omp_get_max_threads() / 2) {
+					// Insufficient nnz per partition
+					printf("Insufficient nnz per partition: %d ... Reducing # of partitions... \n", nnz_ptrn);
+					num_partitions /= 2;
+					nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
+					reduction_cnt++;
+				}
+			}
+
 			create_alto(t_batch, &AT, num_partitions);
 
 			END_TIMER(&ticks_end);
@@ -477,6 +485,8 @@ int main(int argc, char** argv)
 			// DestroyKruskalModel(M);
 			// destroy_alto(AT);
 			++it; // Increase iteration
+
+			// Dump last kruskal model
 		} // All batchs are complete
 
 		DestroySparseTensor(X);

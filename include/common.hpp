@@ -204,6 +204,12 @@ void ELAPSED_TIME(
   double* t_elapsed
 );
 
+void AGG_ELAPSED_TIME(
+  uint64_t start,
+  uint64_t end,
+  double* t_elapsed
+);
+
 void PRINT_TIMER(
   const char* message,
   double t

@@ -46,6 +46,22 @@ void ELAPSED_TIME(
 #endif
 }
 
+void AGG_ELAPSED_TIME(
+  uint64_t start,
+  uint64_t end,
+  double* t_elapsed
+)
+{
+#if TIME
+  if (g_ticks_persecond == 0.0) {
+    fprintf(stderr, "TSC timer has not been initialized.\n");
+  } else {
+    // *t_elapsed = 0.0;
+    *t_elapsed += ((end - start) / g_ticks_persecond);
+  }
+#endif
+}
+
 void PRINT_TIMER(
   const char* message,
   double t
