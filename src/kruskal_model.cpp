@@ -424,7 +424,7 @@ void KruskalModelNorm(KruskalModel* M, IType mode, mat_norm_type which, FType **
 
     IType nthreads = omp_get_max_threads();
 
-    // Initialize lambda scracthpad
+    // Initialize lambda scratchpad
     #pragma omp parallel for schedule(static)
     for (IType t = 0; t < nthreads; ++t) {
         #pragma omp simd

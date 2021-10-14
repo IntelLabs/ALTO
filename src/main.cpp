@@ -35,15 +35,6 @@ using namespace std;
 // #define ALTO_CP_STREAM 1
 // #define DEBUG 1
 
-#if ALTO_MASK_LENGTH == 64
-    typedef unsigned long long LIType;
-#elif ALTO_MASK_LENGTH == 128
-    typedef unsigned __int128 LIType;
-#else
-    #pragma message("!WARNING! ALTO_MASK_LENGTH invalid. Using default 64-bit.")
-    typedef unsigned long long LIType;
-#endif
-
 #define error(msg...) do {						\
 	char ____buf[128];						\
 	snprintf(____buf, 128, msg);					\

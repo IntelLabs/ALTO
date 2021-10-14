@@ -60,6 +60,15 @@ typedef enum Model_ { ALS, CPSTREAM } Model;
 #define SS_MIN(x,y) ((x) < (y) ? (x) : (y))
 #define SS_MAX(x,y) ((x) > (y) ? (x) : (y))
 
+#if ALTO_MASK_LENGTH == 64
+    typedef unsigned long long LIType;
+#elif ALTO_MASK_LENGTH == 128
+    typedef unsigned __int128 LIType;
+#else
+    #pragma message("!WARNING! ALTO_MASK_LENGTH invalid. Using default 64-bit.")
+    typedef unsigned long long LIType;
+#endif
+
 inline uint64_t ReadTSC(void)
 {
 #if defined(__i386__)
