@@ -16,6 +16,7 @@ class StreamingSparseTensor {
         ~StreamingSparseTensor() {};
 
         SparseTensor * next_batch();
+        void print_tensor_info();
         IType num_modes();
 
         bool last_batch();
@@ -26,6 +27,7 @@ class StreamingSparseTensor {
         
         int _stream_mode;
         SparseTensor * _tensor;
+        SparseTensor * _next_batch;
         int _batch_num;
 
         /* Store permutation, inverse permutation info */

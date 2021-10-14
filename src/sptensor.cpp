@@ -70,7 +70,6 @@ void ExportSparseTensor(
   fclose(fp);
 }
 
-
 void read_tns_dims(
   FILE* fin,
   IType* num_modes,
@@ -96,7 +95,6 @@ void read_tns_dims(
   }
   --nmodes;
   *num_modes = nmodes;
-
 
   // Calculate the tensor dimensions
   assert(nmodes <= MAX_NUM_MODES);
@@ -129,7 +127,6 @@ void read_tns_dims(
   free(line);
 }
 
-
 void read_tns_data(
   FILE* fin,
   SparseTensor* tensor,
@@ -156,8 +153,6 @@ void read_tns_data(
 
   free(line);
 }
-
-
 
 void ImportSparseTensor(
   const char* file_path,
@@ -340,4 +335,27 @@ void sptensor_write_file(
     // Print values
     fprintf(fout, "%f\n", sptensor->vals[n]);
   }
+}
+
+void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
+{
+	IType* dims = X->dims;
+	IType nnz = X->nnz;
+	int nmodes = X->nmodes;
+
+	IType tmp = 1;
+	for (int i = 0; i < nmodes; i++) {
+		tmp *= dims[i];
+	}
+	double sparsity = ((double)nnz) / tmp;
+	fprintf(stdout, "# Modes         = %u\n", nmodes);
+	fprintf(stdout, "Rank            = %llu\n", rank);
+	fprintf(stdout, "Sparsity        = %f\n", sparsity);
+	fprintf(stdout, "Max iters       = %d\n", max_iters);
+	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	for (int i = 1; i < nmodes; i++) {
+		fprintf(stdout, " X %llu", dims[i]);
+	}
+	fprintf(stdout, "]\n");
+	fprintf(stdout, "NNZ             = %llu\n", nnz);
 }

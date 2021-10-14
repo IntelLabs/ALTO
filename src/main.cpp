@@ -13,7 +13,7 @@
 #include "common.hpp"
 #include "alto.hpp"
 #include "cpd.hpp"
-#include "streaming_sptensor.hpp"
+#include "streaming_cpd.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -347,6 +347,7 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
+	// Streaming Tensor Decomposition
 	if (model == CPSTREAM) {
 		if (streaming_mode == -1) {
 			fprintf(stderr, "Need to provide -streaming_mode: %d\n", streaming_mode);
@@ -356,7 +357,15 @@ int main(int argc, char** argv)
 			exit(-1);
 		}
 
-		// Streaming Tensor decomposition
+		BEGIN_TIMER(&ticks_start);
+		cp_stream(X, rank, max_iters, streaming_mode, epsilon, seed);
+		END_TIMER(&ticks_end);
+		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+
+		PRINT_TIMER("CP-STREAM", t_cpd);
+
+		return 0;
+
 		// Set up timers
 		double t_create_alto = 0.0;
 		double t_streaming_cpd = 0.0;

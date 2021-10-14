@@ -184,10 +184,25 @@ SparseTensor * StreamingSparseTensor::next_batch() {
     _nnz_ptr = end_nnz;
     ++_batch_num;
 
+    _next_batch = t_batch;
+
     return t_batch;
 }
 
 bool StreamingSparseTensor::last_batch()
 {
     return _nnz_ptr == _tensor->nnz;
+};
+
+void StreamingSparseTensor::print_tensor_info()
+{
+    fprintf(stdout, "Streaming sparse tensor info\n");
+    fprintf(stdout, "\tstreaming mode:          %d\n", _stream_mode);
+    fprintf(stdout, "\tnumber of non-zeros:     %llu\n", _tensor->nnz);
+    fprintf(stdout, "\tdimensions:              \n\t\t");
+    for (int i = 0; i < _tensor->nmodes; ++i) {
+        fprintf(stdout, "%llu", _tensor->dims[i]);
+        if (i != _tensor->nmodes - 1) fprintf(stdout, " x ");
+        else fprintf(stdout, "\n");
+    }
 };
