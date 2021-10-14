@@ -39,4 +39,8 @@ void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode);
 
 void PrintMatrix(char *name, Matrix * M);
 
+void PrintFPMatrix(char *name, FType * a, size_t m, size_t n);
+
+void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n);
+
 #endif // MATRIX_HPP_

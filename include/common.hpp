@@ -53,6 +53,8 @@ typedef float FType;
 
 #define ROW 1
 
+typedef enum Model_ { ALS, CPSTREAM } Model;
+
 #define IDX_MAX UINT32_MAX // Max dimension a mode can have
 
 #define SS_MIN(x,y) ((x) < (y) ? (x) : (y))
@@ -221,7 +223,4 @@ void InitTSC(void);
 
 double ElapsedTime(uint64_t ticks);
 
-void PrintFPMatrix(char *name, FType * a, size_t m, size_t n);
-
-void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n);
 #endif // COMMON_HPP_

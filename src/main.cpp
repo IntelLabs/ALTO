@@ -78,6 +78,7 @@ const struct option long_opt[] = {
     {"input",          1, NULL, 'i'},
     {"output",         1, NULL, 'o'},
     {"bin",            1, NULL, 'b'},
+	{"model",		   1, NULL, 'l'},
     {"rank",           1, NULL, 'r'},
     {"max-iter",       1, NULL, 'm'},
     {"seed",           1, NULL, 'x'},
@@ -92,7 +93,7 @@ const struct option long_opt[] = {
     {NULL,             0, NULL,    0}
 };
 
-const char* const short_opt = "hvi:o:b:r:m:x:d:t:s:e:f:cpa:";
+const char* const short_opt = "hvi:o:b:l:r:m:x:d:t:s:e:f:cpa:";
 const char* version_info = "0.1.1";
 
 int main(int argc, char** argv)
@@ -121,6 +122,9 @@ int main(int argc, char** argv)
 	int save_to_file = 0;
     bool do_check = false;
     bool do_mttkrp_bench = false;
+	std::string model_string;
+	Model model;
+
 	int streaming_mode = -1;
 
 	int c = 0;
@@ -140,6 +144,13 @@ int main(int argc, char** argv)
 			break;
 		case 'b':
 			binary_file = std::string(optarg);
+			break;
+		case 'l':
+			// choose the type of model to compute
+			model_string = std::string(optarg);
+			if (model_string == "ALS" || model_string == "als") model = ALS;
+			else if (model_string == "CPSTREAM" || model_string == "cpstream") model = CPSTREAM;
+			else fprintf(stderr, "Invalid -model: %s.\n", optarg);
 			break;
 		case 'r':
 			rank = (IType)atoll(optarg);
@@ -299,8 +310,7 @@ int main(int argc, char** argv)
 		return 0;
 	}
 
-	if (streaming_mode == -1) {
-		// Non-streaming TD
+	if (model == ALS) {
 		PrintTensorInfo(rank, max_iters, X);
 
 		// Set up the factor matrices
@@ -323,7 +333,7 @@ int main(int argc, char** argv)
 		create_alto(X, &AT, num_partitions);
 
 		BEGIN_TIMER(&ticks_start);
-		cpd_alto(AT, M, max_iters, epsilon);
+	    cpd_alto(AT, M, max_iters, epsilon);
 		// cpd(X, M, max_iters, epsilon);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
@@ -335,8 +345,17 @@ int main(int argc, char** argv)
 		destroy_alto(AT);
 
 		return 0;
+	}
 
-	} else {
+	if (model == CPSTREAM) {
+		if (streaming_mode == -1) {
+			fprintf(stderr, "Need to provide -streaming_mode: %d\n", streaming_mode);
+			exit(-1);
+		} else if (streaming_mode > X->nmodes) {
+			fprintf(stderr, "Specified streaming mode exceeds tensor dimensions: -streaming_mode: %d\n", streaming_mode);
+			exit(-1);
+		}
+
 		// Streaming Tensor decomposition
 		// Set up timers
 		double t_create_alto = 0.0;
@@ -550,7 +569,6 @@ int main(int argc, char** argv)
 		DestroyKruskalModel(M);
 		DestroyKruskalModel(prev_M);
 		return 0;
-
 	}
 }
 
