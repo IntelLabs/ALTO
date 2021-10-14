@@ -822,6 +822,7 @@ void streaming_cpd(
       if(i == 0) {
         KruskalModelNorm(M, j, MAT_NORM_2, lambda_sp);
       } else {
+        // MAT_NORM_MAX doesn't affect lambda as much
         KruskalModelNorm(M, j, MAT_NORM_MAX, lambda_sp);
       }
       END_TIMER(&ticks_end);
@@ -887,10 +888,11 @@ void streaming_cpd(
   } // for max_iters
   num_inner_iter += tmp_iter;
 
-  // Copy new into old factor matrix
-  for(int j = 0; j < X->nmodes; j++) {
-    memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
-  }
+  // // Copy new into old factor matrix
+  // CopyKruskalModel(prev_M, M)
+  // for(int j = 0; j < X->nmodes; j++) {
+  //   memcpy(prev_M->U[j], M->U[j], sizeof(FType) * rank * M->dims[j]);
+  // }
 
   // incorporate forgetting factor
   for (IType x = 0; x < rank * rank; ++x) {
@@ -1389,6 +1391,12 @@ for (int r = 0; r < rank; ++r) {
     GELSY(&_rank, &_rank, &I, grams[mode]->vals, &_rank, M->U[mode], &_rank,
           jpvt, &rcond, &ret_rank, work, &lwork, &info_dgelsy);
     
+    if (info_dgelsy) {
+      PrintMatrix("gram matrix", grams[mode]);
+      PrintFPMatrix("rhs", M->U[mode], I, rank);
+      fprintf(stderr, "\tDGELSS failed!! Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);    
+      exit(1);
+    }
     fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);
     free(work);
     free(jpvt);
@@ -1521,7 +1529,13 @@ if (mode == stream_mode) {
           M->U[mode], &_rank,
           conditions, &rcond, &ret_rank, 
           work, &lwork, &info_dgelsy);
-    // if (info_dgelsy != 0)
+
+    if (info_dgelsy) {
+      PrintMatrix("gram matrix", grams[mode]);
+      PrintFPMatrix("rhs", M->U[mode], I, rank);
+      fprintf(stderr, "\tDGELSS failed!! Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);    
+      exit(1);
+    }
 
 #if DEBUG == 1
     printf("uplo: %c, lda: %d, nrhs: %d, ldb: %d, info: %d\n", uplo, _rank, I, _rank, info_dgelsy);

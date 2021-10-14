@@ -24,8 +24,13 @@
 #include <stdint.h>
 #include <string.h>
 
+// To load files in directory
+#include <dirent.h>
+
 #include <sched.h>
 #include <numaif.h>
+
+using namespace std;
 
 // #define ALTO_CP_STREAM 1
 // #define DEBUG 1
@@ -469,8 +474,59 @@ int main(int argc, char** argv)
 			END_TIMER(&ticks_end);
 			ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 			PRINT_TIMER("CPD (COO)", t_cpd);
+			*/
+			
+			// If text_file_out is specified it is implied that we're using checkpoints
+			if (!text_file_out.empty()) {
 
-			ExportKruskalModel(M, text_file_out.c_str());*/
+				// string of files
+				std::vector<std::string> files;
+				std::string path_to_checkpoints = "./checkpoints";
+
+				struct dirent * entry;
+				DIR * dir = opendir(path_to_checkpoints.c_str());
+
+				if (dir == NULL) {
+					// if directory doesnt exist
+					printf("Couldn't find directory at path: %s...\n", path_to_checkpoints.c_str());
+				}
+				else {
+					// If we found checkpoint directory
+					// Delete existing files
+					while((entry = readdir(dir)) != NULL) {
+						if (std::string(entry->d_name).find(text_file_out) != std::string::npos) {
+							files.push_back(std::string(entry->d_name));
+						}
+					}
+
+					for (std::string file : files) {
+						std::string full_path = path_to_checkpoints + "/" + file;
+						if(remove(full_path.c_str()) != 0) {
+							printf("Error deleting file: %s...\n", full_path.c_str());
+						}
+						else {
+							printf("Deleted: %s\n", full_path.c_str());
+						};
+					}
+				}
+
+				closedir(dir);
+
+				//Create checkpoints
+				char str[1000];
+				char prev_str[1000];
+
+				sprintf(str, "%s/%s_it_%d_nnz_%llu", path_to_checkpoints.c_str(), text_file_out.c_str(), it, t_batch->nnz);
+				ExportKruskalModel(M, str);
+
+				if (it > 1) {
+					sprintf(prev_str, "%s/%s_prev_it_%d_nnz_%llu", path_to_checkpoints.c_str(), text_file_out.c_str(), it-1, t_batch->nnz);
+					ExportKruskalModel(prev_M, prev_str);
+				}
+				// Inspect files
+			}
+
+			CopyKruskalModel(&prev_M, &M);
 
 			PRINT_TIMER("Copy factor matrices", tot_copy_factor_matrices);
 			PRINT_TIMER("Create Alto", tot_create_alto);
