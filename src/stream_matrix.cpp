@@ -2,26 +2,6 @@
 #include "util.hpp"
 
 
-void PrintMatrix(char *name, Matrix * M)
-{
-  size_t m = M->I;
-  size_t n = M->J;
-  
-	fprintf(stderr,"%s:\n", name);
-    for (size_t i = 0; i < m; i++) {
-        fprintf(stderr, "[");
-        for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%e", M->vals[i * n + j]);
-            if (j != n-1) fprintf(stderr, ", ");
-            if (j == n-1) fprintf(stderr, "],");
-        }
-
-        fprintf(stderr,"\n");
-    }
-    fprintf(stderr,"\n");
-}
-
-
 StreamMatrix::StreamMatrix(
     IType rank
 ) : _nrows(0),
@@ -80,4 +60,3 @@ void StreamMatrix::grow_zero(IType new_rows) {
 
     _nrows = new_rows;
 }
-

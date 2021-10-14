@@ -2,18 +2,7 @@
 #define STREAM_MATRIX_HPP_
 
 #include "common.hpp"
-
-struct matrix_struct {
-  IType I;
-  IType J;
-  FType *vals;
-  int rowmajor;
-};
-typedef struct matrix_struct Matrix;
-
-
-void PrintMatrix(char *name, Matrix * M);
-
+#include "matrix.hpp"
 
 class StreamMatrix
 {
