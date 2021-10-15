@@ -43,7 +43,10 @@ void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode,
         
     Matrix ** grams;
     // concatencated s_t's
-    Matrix * global_time = zero_mat(1, rank);
+    Matrix * local_time = zero_mat(1, rank);
+
+    // Instantiate global time stream matrix
+    StreamMatrix * gt = new StreamMatrix(rank);
 
     int it = 0;
 
@@ -58,14 +61,15 @@ void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode,
             KruskalModelRandomInit(M, (unsigned int)seed);
             KruskalModelZeroInit(prev_M);
 
-            // Override values for M->U[stream_mode] with last row of global_time matrix
-            M->U[streaming_mode] = &(global_time->vals[it*rank]);
+            // Override values for M->U[stream_mode] with last row of local_time matrix
+            M->U[streaming_mode] = local_time->vals;
 
             // TODO: specify what "grams" exactly
             init_grams(&grams, M);
         } else {
             GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
             GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
+
             for (int j = 0; j < M->mode; ++j) {
                 if (j != streaming_mode) {
                     update_gram(grams[j], M, j);
@@ -73,14 +77,7 @@ void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode,
             }
         }
 
-        GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
-        GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
-        for (int j = 0; j < M->mode; ++j) {
-            if (j != streaming_mode) {
-                update_gram(grams[j], M, j);
-            }
-        }
-
+        // Set s_t to the latest row of global time stream matrix
         cp_stream_iter(
             t_batch, M, prev_M, grams, 
             max_iters, epsilon, streaming_mode, it, use_alto);
@@ -90,8 +87,12 @@ void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode,
         // Copy latest
         CopyKruskalModel(&prev_M, &M);
 
+        // Increase global time stream matrix
         DestroySparseTensor(t_batch);
         ++it;
+        // printf("it: %d\n", it);
+        gt->grow_zero(it);
+        memcpy(&(gt->mat()->vals[rank * (it-1)]), M->U[streaming_mode], rank * sizeof(FType));
     }
 
     DestroySparseTensor(X);

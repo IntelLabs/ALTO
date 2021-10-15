@@ -12,8 +12,7 @@ StreamMatrix::StreamMatrix(
     _mat = init_mat(_row_capacity, rank);
     // _nrows = 12;
     // _ncols = 33;
-
-    printf("=== Stream Matrix initialized ===\n");
+    printf("\n\n=== Stream Matrix initialized ===\n\n\n");
 }
 
 StreamMatrix::~StreamMatrix()
@@ -57,6 +56,5 @@ void StreamMatrix::grow_zero(IType new_rows) {
             _mat->vals[i] = 0.0;
         }
     }
-
     _nrows = new_rows;
 }
