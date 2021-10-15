@@ -141,6 +141,7 @@ int main(int argc, char** argv)
 			model_string = std::string(optarg);
 			if (model_string == "ALS" || model_string == "als") model = ALS;
 			else if (model_string == "CPSTREAM" || model_string == "cpstream") model = CPSTREAM;
+			else if (model_string == "CPSTREAM_ALTO" || model_string == "cpstream_alto") model = CPSTREAM_ALTO;
 			else fprintf(stderr, "Invalid -model: %s.\n", optarg);
 			break;
 		case 'r':
@@ -339,7 +340,7 @@ int main(int argc, char** argv)
 	}
 
 	// Streaming Tensor Decomposition
-	if (model == CPSTREAM) {
+	if (model == CPSTREAM || model == CPSTREAM_ALTO) {
 		if (streaming_mode == -1) {
 			fprintf(stderr, "Need to provide -streaming_mode: %d\n", streaming_mode);
 			exit(-1);
@@ -349,7 +350,7 @@ int main(int argc, char** argv)
 		}
 
 		BEGIN_TIMER(&ticks_start);
-		cp_stream(X, rank, max_iters, streaming_mode, epsilon, seed);
+		cp_stream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 

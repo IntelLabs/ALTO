@@ -12,7 +12,7 @@
 // Signatures
 void cp_stream(
     SparseTensor* X, int rank, int max_iters, int streaming_mode, 
-    FType epsilon, IType seed);
+    FType epsilon, IType seed, bool use_alto);
 
 void cp_stream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
     Matrix** grams, int max_iters, double epsilon, 
@@ -26,7 +26,7 @@ static void pseudo_inverse_stream(Matrix ** grams, KruskalModel* M, IType mode, 
 
 // Implementations
 void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode, 
-    FType epsilon, IType seed) {
+    FType epsilon, IType seed, bool use_alto) {
     // Define timers (common)
     double t_preprocess = 0.0;
     double tot_preprocess = 0.0;
@@ -80,9 +80,6 @@ void cp_stream(SparseTensor* X, int rank, int max_iters, int streaming_mode,
                 update_gram(grams[j], M, j);
             }
         }
-
-        bool use_alto = false;
-        // bool use_alto = true;
 
         cp_stream_iter(
             t_batch, M, prev_M, grams, 
