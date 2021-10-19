@@ -23,6 +23,9 @@ typedef size_t MKL_INT;
 #include "util.hpp"
 #include "kruskal_model.hpp"
 #include "alto.hpp"
+#include "gram.hpp"
+#include "mttkrp.hpp"
+#include "matrix.hpp"
 
 // #define DEBUG 1
 
@@ -34,25 +37,12 @@ template <typename LIT>
 double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, Matrix ** grams, FType* U_mttkrp, FType normAT);
 
 // Reference COO implementations
-void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon);
-void streaming_cpd(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, Matrix** grams, int max_iters, double epsilon, int streaming_mode, int iter);
-
-template <typename LIT>
-void streaming_cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, KruskalModel * prev_M, Matrix** grams, int max_iters, double epsilon, int streaming_mode, int iter);
+static void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon);
 
 double cpd_fit(SparseTensor* X, KruskalModel* M, Matrix ** grams, FType* U_mttkrp);
-void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writelocks);
-void mttkrp(SparseTensor* X, KruskalModel* M, IType mode);
 
 // CPD kernels
 static void pseudo_inverse(Matrix ** grams, KruskalModel* M, IType mode);
-
-// More explicit version for streaming cpd
-static void destroy_grams(Matrix ** grams, KruskalModel* M);
-static void init_grams(Matrix *** grams, KruskalModel* M);
-static void copy_upper_tri(Matrix * M);
-
-static void update_gram(Matrix * gram, KruskalModel* M, int mode);
 
 template <typename LIT>
 void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilon)
@@ -382,7 +372,7 @@ void cpd(SparseTensor* X, KruskalModel* M, int max_iters, double epsilon)
   destroy_grams(grams, M);
 }
 
-double cpd_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FType* U_mttkrp)
+double cpstream_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FType* U_mttkrp)
 {
   // Calculate inner product between X and M
   // This can be done via sum(sum(P.U{dimorder(end)} .* U_mttkrp) .* lambda');
@@ -467,179 +457,6 @@ double cpd_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FType* U_mttkrp
   free(tmp_gram);
 
   return ret;
-}
-
-double streaming_cpd_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FType* U_mttkrp, int streaming_mode)
-{
-  // Calculate inner product between X and M
-  // This can be done via sum(sum(P.U{dimorder(end)} .* U_mttkrp) .* lambda');
-  IType rank = M->rank;
-  IType nmodes = X->nmodes;
-  IType* dims = X->dims;
-
-  FType* accum = (FType*) AlignedMalloc(sizeof(FType) * rank);
-  assert(accum);
-  memset(accum, 0, sizeof(FType*) * rank);
-  #if 0
-  for(IType i = 0; i < dims[nmodes - 1]; i++) {
-    for(IType j = 0; j < rank; j++) {
-      accum[j] += M->U[nmodes - 1][i * rank + j] * U_mttkrp[i * rank + j];
-    }
-  }
-  #else
-  #pragma omp parallel for schedule(static)
-  for(IType j = 0; j < rank; j++) {
-    for(IType i = 0; i < dims[nmodes - 1]; i++) {
-      accum[j] += M->U[nmodes - 1][i * rank + j] * U_mttkrp[i * rank + j];
-    }
-  }
-  #endif
-
-  FType inner_prod = 0.0;
-  for(IType i = 0; i < rank; i++) {
-    inner_prod += accum[i] * M->lambda[i];
-  }
-
-  // Calculate norm(X)^2
-  IType nnz = X->nnz;
-  FType* vals = X->vals;
-  FType normX = 0.0;
-  #pragma omp parallel for reduction(+:normX) schedule(static)
-  for(IType i = 0; i < nnz; i++) {
-    normX += vals[i] * vals[i];
-  }
-
-  // Calculate norm of factor matrices
-  // This can be done via taking the hadamard product between all the gram
-  // matrices, and then summing up all the elements and taking the square root
-  // of the absolute value
-  FType* tmp_gram = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
-  assert(tmp_gram);
-  #pragma omp parallel for schedule(dynamic)
-  for(IType i = 0; i < rank; i++) {
-    for(IType j = 0; j < i + 1; j++) {
-      tmp_gram[i * rank + j] = M->lambda[i] * M->lambda[j];
-    }
-  }
-
-  // calculate the hadamard product between all the Gram matrices
-  for(IType i = 0; i < nmodes; i++) {
-    #pragma omp parallel for schedule(dynamic)
-    for(IType j = 0; j < rank; j++) {
-      for(IType k = 0; k < j + 1; k++) {
-        tmp_gram[j * rank + k] *= grams[i]->vals[j * rank + k];
-      }
-    }
-  }
-
-  FType normU = 0.0;
-  for(IType i = 0; i < rank; i++) {
-    for(IType j = 0; j < i; j++) {
-      normU += tmp_gram[i * rank + j] * 2;
-    }
-    normU += tmp_gram[i * rank + i];
-  }
-  normU = fabs(normU);
-
-  // Calculate residual using the above
-  FType norm_residual = normX + normU - 2 * inner_prod;
-  printf("normX: %f, normU: %f, inner_prod: %f\n", normX, normU, inner_prod);
-  if (norm_residual > 0.0) {
-    norm_residual = sqrt(norm_residual);
-  }
-  FType ret = norm_residual / sqrt(normX);
-
-  // free memory
-  free(accum);
-  free(tmp_gram);
-
-  return ret;
-}
-
-
-void mttkrp_par(SparseTensor* X, KruskalModel* M, IType mode, omp_lock_t* writelocks)
-{
-  IType nmodes = X->nmodes;
-  IType nnz = X->nnz;
-  IType** cidx = X->cidx;
-  IType rank = M->rank;
-
-  int max_threads = omp_get_max_threads();
-  FType* rows = (FType*) AlignedMalloc(sizeof(FType) * rank * max_threads);
-  assert(rows);
-
-  #pragma omp parallel
-  {
-    // get thread ID
-    int tid = omp_get_thread_num();
-    FType* row = &(rows[tid * rank]);
-
-    #pragma omp for schedule(static)
-    for(IType i = 0; i < nnz; i++) {
-      // initialize temporary accumulator
-      for(IType r = 0; r < rank; r++) {
-        row[r] = X->vals[i];
-      }
-
-      // calculate mttkrp for the current non-zero
-      for(IType m = 0; m < nmodes; m++) {
-        if(m != mode) {
-          IType row_id = cidx[m][i];
-          for(IType r = 0; r < rank; r++) {
-            row[r] *= M->U[m][row_id * rank + r];
-          }
-        }
-      }
-
-      // update destination row
-      IType row_id = cidx[mode][i];
-      omp_set_lock(&(writelocks[row_id]));
-      for(IType r = 0; r < rank; r++) {
-        M->U[mode][row_id * rank + r] += row[r];
-      }
-      omp_unset_lock(&(writelocks[row_id]));
-    } // for each nonzero
-  } // #pragma omp parallel
-
-
-  // free memory
-  free(rows);
-}
-
-void mttkrp(SparseTensor* X, KruskalModel* M, IType mode)
-{
-  IType nmodes = X->nmodes;
-  //IType* dims = X->dims;
-  IType nnz = X->nnz;
-  IType** cidx = X->cidx;
-  IType rank = M->rank;
-
-  FType row[rank];
-
-  for(IType i = 0; i < nnz; i++) {
-    // initialize temporary accumulator
-    for(IType r = 0; r < rank; r++) {
-      row[r] = X->vals[i];
-    }
-
-    // calculate mttkrp for the current non-zero
-    for(IType m = 0; m < nmodes; m++) {
-      if(m != mode) {
-        IType row_id = cidx[m][i];
-        for(IType r = 0; r < rank; r++) {
-          row[r] *= M->U[m][row_id * rank + r];
-        }
-      }
-    }
-
-    // update destination row
-    IType row_id = cidx[mode][i];
-    for(IType r = 0; r < rank; r++) {
-      M->U[mode][row_id * rank + r] += row[r];
-    }
-  } // for each nonzero
-
-  // PrintFPMatrix("MTTKRP", dims[mode], rank, M->U[mode], rank);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -747,61 +564,5 @@ for (int r = 0; r < rank; ++r) {
   // cleanup
   free(scratch);
 }
-
-static void destroy_grams(Matrix ** grams, KruskalModel* M)
-{
-  for(int i = 0; i < M->mode; i++) {
-    free_mat(grams[i]);
-  }
-  free(grams);
-}
-
-static void init_grams(Matrix *** grams, KruskalModel* M)
-{
-  IType rank = M->rank;
-  Matrix ** _grams = (Matrix**) AlignedMalloc(sizeof(Matrix*) * M->mode);
-  assert(_grams);
-  for(int i = 0; i < M->mode; i++) {
-    _grams[i] = init_mat(rank, rank);
-    assert(_grams[i]);
-  }
-
-  for(int i = 0; i < M->mode; i++) {
-    update_gram(_grams[i], M, i);
-  }
-
-  *grams = _grams;
-}
-
-
-static void update_gram(Matrix * gram, KruskalModel* M, int mode)
-{
-  MKL_INT m = M->dims[mode];
-  MKL_INT n = M->rank;
-  MKL_INT lda = n;
-  MKL_INT ldc = n;
-  FType alpha = 1.0;
-  FType beta = 0.0;
-
-  CBLAS_ORDER layout = CblasRowMajor;
-  CBLAS_UPLO uplo = CblasUpper;
-  CBLAS_TRANSPOSE trans = CblasTrans;
-  SYRK(layout, uplo, trans, n, m, alpha, M->U[mode], lda, beta, gram->vals, ldc);
-}
-
-static void copy_upper_tri(Matrix * M) {
-  IType const I = M->I;
-  IType const J = M->J;
-  FType * const vals = M->vals;
-
-  #pragma omp parallel for schedule(static, 1) if(I > 50)
-  for(IType i=1; i < I; ++i) {
-    for(IType j=0; j < i; ++j) {  
-      vals[j + (i*J)] = vals[i + (j*J)];
-    }
-  }  
-};
-
-
 
 #endif // CPD_HPP_

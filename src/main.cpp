@@ -13,7 +13,7 @@
 #include "common.hpp"
 #include "alto.hpp"
 #include "cpd.hpp"
-#include "streaming_cpd.hpp"
+#include "cpstream.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -24,6 +24,7 @@
 #include <stdint.h>
 #include <string.h>
 
+
 // To load files in directory
 #include <dirent.h>
 
@@ -32,7 +33,7 @@
 
 using namespace std;
 
-// #define ALTO_CP_STREAM 1
+// #define ALTO_CPSTREAM 1
 // #define DEBUG 1
 
 #define error(msg...) do {						\
@@ -56,8 +57,6 @@ static void MakeSparseTensor(int nmodes, IType* dims, double sparsity,
 static std::vector<IType> ParseDimensions(char* argv, int* nmodes_);
 static void PrintVersion(char* call);
 static void Usage(char* call);
-
-static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X);
 
 #ifdef memtrace
 static long PrintNodeMem(int node, const char* tag);
@@ -324,6 +323,7 @@ int main(int argc, char** argv)
 		int num_partitions = omp_get_max_threads();
 		create_alto(X, &AT, num_partitions);
 
+
 		BEGIN_TIMER(&ticks_start);
 	    cpd_alto(AT, M, max_iters, epsilon);
 		// cpd(X, M, max_iters, epsilon);
@@ -350,7 +350,7 @@ int main(int argc, char** argv)
 		}
 
 		BEGIN_TIMER(&ticks_start);
-		cp_stream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false);
+		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 
@@ -360,11 +360,11 @@ int main(int argc, char** argv)
 
 		// Set up timers
 		double t_create_alto = 0.0;
-		double t_streaming_cpd = 0.0;
+		double t_cpstream = 0.0;
 		double t_copy_factor_matrices = 0.0;
 
 		double tot_create_alto = 0.0;
-		double tot_streaming_cpd = 0.0;
+		double tot_cpstream = 0.0;
 		double tot_copy_factor_matrices = 0.0;
 		
 		double t_preprocess_tensor = 0.0;
@@ -443,50 +443,12 @@ int main(int argc, char** argv)
 			4. Computing auxiliary stuff (aTa)
 			*/
 
-#if ALTO_CP_STREAM==1
-			BEGIN_TIMER(&ticks_start);
-			AltoTensor<LIType>* AT;
-
-			int num_partitions = omp_get_max_threads();
-            // num_partitions = 1;
-
-			int nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
-
-			int reduction_cnt = 0;
-			if (t_batch->nnz < num_partitions) {
-				num_partitions = 1;
-			}
-			else {
-				while (nnz_ptrn < omp_get_max_threads() / 2) {
-					// Insufficient nnz per partition
-					printf("Insufficient nnz per partition: %d ... Reducing # of partitions... \n", nnz_ptrn);
-					num_partitions /= 2;
-					nnz_ptrn = (t_batch->nnz + num_partitions - 1) / num_partitions;
-					reduction_cnt++;
-				}
-			}
-
-			create_alto(t_batch, &AT, num_partitions);
-
-			END_TIMER(&ticks_end);
-			ELAPSED_TIME(ticks_start, ticks_end, &t_create_alto);
-			tot_create_alto += t_create_alto;
-
-			BEGIN_TIMER(&ticks_start);
-			streaming_cpd_alto(AT, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
-			END_TIMER(&ticks_end);
-#else
-			BEGIN_TIMER(&ticks_start);
-			streaming_cpd(t_batch, M, prev_M, grams, max_iters, epsilon, streaming_mode, it);
-			END_TIMER(&ticks_end);
-#endif
-
 			// Printing Kruskal Models
 			// PrintKruskalModel(M);
 			// PrintKruskalModel(prev_M);
 
-			ELAPSED_TIME(ticks_start, ticks_end, &t_streaming_cpd);
-			tot_streaming_cpd += t_streaming_cpd;
+			ELAPSED_TIME(ticks_start, ticks_end, &t_cpstream);
+			tot_cpstream += t_cpstream;
 			// PrintKruskalModel(M);
 
 			/*BEGIN_TIMER(&ticks_start);
@@ -550,11 +512,11 @@ int main(int argc, char** argv)
 
 			PRINT_TIMER("Copy factor matrices", tot_copy_factor_matrices);
 			PRINT_TIMER("Create Alto", tot_create_alto);
-			PRINT_TIMER("Streaming CPD", tot_streaming_cpd);
+			PRINT_TIMER("Streaming CPD", tot_cpstream);
 
 			// Cleanup
 			DestroySparseTensor(t_batch);
-#if ALTO_CP_STREAM==1
+#if ALTO_CPSTREAM==1
 			destroy_alto(AT);
 #else
 #endif
@@ -865,29 +827,6 @@ static void Usage(char* call)
 	fprintf(stderr, "\t-s or --sparsity     Sparsity of generate tensor\n");
     fprintf(stderr, "\t-c or --check        Run ALTO (par) validation against cpd MTTKRP\n");
     fprintf(stderr, "\t-p or --bench        Run ALTO (par) MTTKRP benchmark with the given CMD line options\n");
-}
-
-static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
-{
-	IType* dims = X->dims;
-	IType nnz = X->nnz;
-	int nmodes = X->nmodes;
-
-	IType tmp = 1;
-	for (int i = 0; i < nmodes; i++) {
-		tmp *= dims[i];
-	}
-	double sparsity = ((double)nnz) / tmp;
-	fprintf(stderr, "# Modes         = %u\n", nmodes);
-	fprintf(stderr, "Rank            = %llu\n", rank);
-	fprintf(stderr, "Sparsity        = %f\n", sparsity);
-	fprintf(stderr, "Max iters       = %d\n", max_iters);
-	fprintf(stderr, "Dimensions      = [%llu", dims[0]);
-	for (int i = 1; i < nmodes; i++) {
-		fprintf(stderr, " X %llu", dims[i]);
-	}
-	fprintf(stderr, "]\n");
-	fprintf(stderr, "NNZ             = %llu\n", nnz);
 }
 
 #ifdef memtrace

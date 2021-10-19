@@ -43,4 +43,6 @@ void PrintFPMatrix(char *name, FType * a, size_t m, size_t n);
 
 void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n);
 
+void copy_upper_tri(Matrix * M);
+
 #endif // MATRIX_HPP_

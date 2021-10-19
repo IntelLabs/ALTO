@@ -138,6 +138,7 @@ void PrintFPMatrix(char *name, FType * a, size_t m, size_t n)
     fprintf(stderr,"\n");
 }
 
+
 void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n)
 {
 	fprintf(stderr,"%s:\n", name);
@@ -149,3 +150,16 @@ void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n)
     }
     fprintf(stderr,"\n");
 }
+
+void copy_upper_tri(Matrix * M) {
+  IType const I = M->I;
+  IType const J = M->J;
+  FType * const vals = M->vals;
+
+  #pragma omp parallel for schedule(static, 1) if(I > 50)
+  for(IType i=1; i < I; ++i) {
+    for(IType j=0; j < i; ++j) {  
+      vals[j + (i*J)] = vals[i + (j*J)];
+    }
+  }  
+};
