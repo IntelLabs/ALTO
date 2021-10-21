@@ -49,6 +49,6 @@ void DestroyKruskalModel(KruskalModel *M);
 void PrintKruskalModel(KruskalModel *M);
 
 void RedistributeLambda (KruskalModel *M, int n);
-
+void PrintKruskalModelInfo(KruskalModel *M);
 double KruskalTensorFit();
 #endif // KRUSKAL_MODEL_HPP_

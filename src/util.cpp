@@ -26,6 +26,7 @@ FType rand_val()
 }
 
 void fill_rand(FType * vals, IType num_el) {
+    srand(44);
     for(IType i=0; i < num_el; ++i) {
         vals[i] = rand_val();
     } 

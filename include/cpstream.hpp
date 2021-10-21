@@ -13,8 +13,13 @@
 
 // Signatures
 void cpstream(
-    SparseTensor* X, int rank, int max_iters, int streaming_mode, 
-    FType epsilon, IType seed, bool use_alto);
+    SparseTensor* X, 
+    int rank, 
+    int max_iters, 
+    int streaming_mode, 
+    FType epsilon, 
+    IType seed, 
+    bool use_alto);
 
 void cpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
     Matrix** grams, int max_iters, double epsilon, 

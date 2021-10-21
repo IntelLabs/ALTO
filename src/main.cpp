@@ -107,7 +107,7 @@ int main(int argc, char** argv)
 	std::string binary_file;
 	double sparsity = 0.1;
 	// double epsilon = 1e-5;
-	double epsilon = 1e-3;
+	double epsilon = 1e-4;
 	int seed = time(NULL);
 	int save_to_file = 0;
     bool do_check = false;
@@ -349,12 +349,17 @@ int main(int argc, char** argv)
 			exit(-1);
 		}
 
+		// Instantiate global time stream matrix
+		// Later used for fit computation
 		BEGIN_TIMER(&ticks_start);
 		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 
 		PRINT_TIMER("CP-STREAM", t_cpd);
+
+		// Get kruskal model for final factorization
+
 
 		return 0;
 

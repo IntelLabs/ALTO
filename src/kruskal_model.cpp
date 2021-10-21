@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <time.h>
 #include <omp.h>
+#include <util.hpp>
 
 #include "kruskal_model.hpp"
 
@@ -187,6 +188,17 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueTyp
         // Fill exceeding values with zeros
         int added_nrows = dims[n] - old_dims[n];
         if (added_nrows > 0) { // If we need to add more rows
+
+            for (int r = 0; r < added_nrows * rank; ++r) {
+                if (FillValueType_ == FILL_RANDOM) {
+                    fill_rand(&(M->U[n][old_dims[n] * rank]), added_nrows * rank);
+                } 
+                else if (FillValueType_ == FILL_ZEROS) {
+                    M->U[n][old_dims[n] * rank + r] = 0.0;
+                }
+            }
+
+            /*
             int seed = time(NULL);
             srand(seed);
             #pragma omp parallel
@@ -202,6 +214,7 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueTyp
                     }
                 }
             }
+            */
         }
     }
     M->lambda = (FType *) AlignedMalloc(rank * sizeof (FType));
@@ -268,6 +281,23 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
         M->lambda[i] = (FType) 1.0;
     }
 
+    for (int n = 0; n < M->mode; n++) {
+        #if DEBUG == 1
+        for (IType i = 0; i < M->dims[n] * M->rank; i++) {
+            M->U[n][i] = (FType) 1.0;
+        }
+        #else
+        fill_rand(M->U[n], M->dims[n] * M->rank);
+        #endif
+    }
+    /*
+            fill_rand(&(M->U[n][]));
+            FType v = 3.0 * ((FType) rand() / (FType) RAND_MAX);
+            if (rand() % 2 == 0) v *= -1;
+            M->U[n][i] = v;
+            #endif
+*/
+/*
     srand(seed);
     for (int n = 0; n < M->mode; n++) {
         #pragma omp parallel
@@ -283,6 +313,7 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
             }
         }
     }
+    */
 }
 
 void KruskalModelZeroInit(KruskalModel *M)
@@ -481,6 +512,15 @@ void RedistributeLambda (KruskalModel *M, int n)
         lambda[r] = 1.0;
     }
 }
+
+void PrintKruskalModelInfo(KruskalModel *M) {
+    for (int i = 0; i < M->mode; ++i) {
+        fprintf(stdout, "%llu", M->dims[i]);
+        if (i != M->mode - 1) fprintf(stdout, " x ");
+        else fprintf(stdout, "\n");
+    }
+};
+
 
 double KruskalTensorFit()
 {
