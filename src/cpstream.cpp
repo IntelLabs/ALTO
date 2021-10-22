@@ -1,5 +1,9 @@
 #include "cpstream.hpp"
 
+#include <vector>
+#include <algorithm>
+
+using namespace std;
 // #define DEBUG 1
 
 // Implementations
@@ -29,8 +33,66 @@ void cpstream(
     // concatencated s_t's
     Matrix * local_time = zero_mat(1, rank);
     StreamMatrix * global_time = new StreamMatrix(rank);
-    int it = 0;
 
+#if 1
+    // Hypersparse ALS specific
+    SparseCPGrams * scpgrams = InitSparseCPGrams(X->nmodes, rank);
+    DeleteSparseCPGrams(scpgrams, X->nmodes);
+
+    Matrix ** Q_Phi_inv;
+    
+    int it = 0;
+    while (!sst.last_batch()) {
+        SparseTensor * t_batch = sst.next_batch();
+
+        if (it == 0) {
+            CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
+            CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &prev_M);
+            KruskalModelRandomInit(M, (unsigned int)seed);
+            KruskalModelZeroInit(prev_M);
+
+            // Override values for M->U[stream_mode] with last row of local_time matrix
+            M->U[streaming_mode] = local_time->vals;
+
+            // TODO: specify what "grams" exactly
+            init_grams(&grams, M);
+
+            for (int i = 0; i < rank * rank; ++i) {
+                grams[streaming_mode]->vals[i] = 0.0;
+            }
+        } else {
+            GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
+            GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
+
+            for (int j = 0; j < M->mode; ++j) {
+                if (j != streaming_mode) {
+                    update_gram(grams[j], M, j);
+                }
+            }
+        }
+
+        spcpstream_iter(
+          t_batch,
+          M, prev_M, grams, scpgrams,
+          max_iters, epsilon, streaming_mode, it, use_alto
+        );
+
+
+        DestroySparseTensor(t_batch);
+        ++it;
+    }
+
+    return;
+    /*
+    RowSparseMatrix ** A_nz_prev;
+    RowSparseMatrix ** A_nz;
+    */
+
+#else
+
+   // Matrix ** c_nz_prev = (Matrix**)malloc()
+
+    int it = 0;
     while(!sst.last_batch()) {   
         // Get next time batch
         SparseTensor * t_batch = sst.next_batch();
@@ -51,7 +113,6 @@ void cpstream(
             for (int i = 0; i < rank * rank; ++i) {
                 grams[streaming_mode]->vals[i] = 0.0;
             }
-
         } else {
             GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
             GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
@@ -63,13 +124,17 @@ void cpstream(
             }
         }
 
+        // TODO: Can convert it to ALTO outside of the iter function
+        // Since our plan is to remove COO mttkrp completely
+
         // Set s_t to the latest row of global time stream matrix
         cpstream_iter(
             t_batch, M, prev_M, grams, 
             max_iters, epsilon, streaming_mode, it, use_alto);
 
-        // spcpstream_iter(t_batch, M, prev_M, grams, 
-        //     max_iters, epsilon, streaming_mode, it, use_alto);
+
+        spcpstream_iter(t_batch, M, prev_M, grams, 
+            max_iters, epsilon, streaming_mode, it, use_alto);
 
         // Save checkpoints
 
@@ -114,6 +179,7 @@ void cpstream(
     DestroyKruskalModel(M);
     DestroyKruskalModel(prev_M);
     return;    
+#endif // spcp-stream dev mode
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -504,9 +570,174 @@ void cpstream_iter(
 }
 
 
+void idxsort_hist(
+  const SparseTensor * const tt, 
+  const IType mode, 
+  vector<size_t>& idx, 
+  vector<size_t>& buckets) {
+  if (idx.size() != tt->nnz) {
+    idx.resize(tt->nnz);
+  }
+
+  #pragma omp parallel for schedule(static)
+  for (size_t i = 0; i < tt->nnz; ++i) {
+    idx[i] = i;
+  }
+
+  std::sort(idx.begin(), idx.end(), [&](size_t x, size_t y) {
+      return (tt->cidx[mode][x] < tt->cidx[mode][y]);});
+
+  IType* hists;
+  IType num_bins;
+  size_t* counts;
+
+  #pragma omp parallel
+ {
+   int nthreads = omp_get_num_threads();
+   int tid = omp_get_thread_num();
+   size_t start = (tt->nnz * tid) / nthreads;
+   size_t end = (tt->nnz * (tid+1)) / nthreads;
+
+
+   size_t my_first = std::numeric_limits<size_t>::max();
+   size_t my_last = std::numeric_limits<size_t>::max();
+   size_t my_unique = 0;
+   if (start == 0 && start < end) { // first thread with elements
+     ++start;
+     my_first = 0;
+     my_unique = 1;
+   }
+
+  for (size_t i = start; i < end; ++i) {
+    if (tt->cidx[mode][idx[i]] != tt->cidx[mode][idx[i-1]]) {
+      if (my_first > i) {
+        my_first = i;
+      }
+      ++my_unique;
+      my_last = i;
+    }
+  }
+
+  // get total count and prefix sum of `my_unique`
+  // TODO: this impleementation is pretty ad-hoc and has a lot of potential
+  // to be improved (if necessary - currently this is not even close to a
+  // bottleneck)
+#pragma omp single
+  {
+    counts = (size_t*) malloc(nthreads*sizeof(size_t));
+  }
+#pragma omp barrier
+  counts[tid] = my_unique; // FIXME: lots of false sharing here
+  // prefix
+#pragma omp barrier
+
+  size_t my_prefix = 0;
+  size_t num_unique = 0;
+  for (int i = 0; i < tid; ++i) {
+    my_prefix += counts[i];
+  }
+  for (int i = 0; i < nthreads; ++i) {
+    num_unique += counts[i];
+  }
+
+  // create bucket offset array from sorted order
+  #pragma omp single
+  {
+    num_bins = num_unique;
+    buckets.resize(num_bins+1);
+    buckets[0] = 0;
+    buckets[num_bins] = tt->nnz;
+  }
+  #pragma omp barrier
+
+  if (my_first <= my_last && my_last < tt->nnz) {
+    IType c = my_prefix;
+    buckets[c] = my_first;
+    for (size_t i = my_first+1; i < my_last+1; ++i) {
+      if (tt->cidx[mode][idx[i]] != tt->cidx[mode][idx[i-1]]) {
+        ++c;
+        buckets[c] = i;
+      }
+    }
+  }
+ }
+}
+
+
+// add reverse idx
+void nonzero_slices(
+    SparseTensor * const tt, const IType mode,
+    vector<size_t> &nz_rows,
+    vector<size_t> &idx,
+    vector<int> &ridx,
+    vector<size_t> &buckets) 
+{
+  idxsort_hist(tt, mode, idx, buckets);
+  size_t num_bins = buckets.size() - 1;
+
+  for (IType i = 0; i < num_bins; i++) {
+    nz_rows.push_back(tt->cidx[mode][idx[buckets[i]]]);
+  }
+  // Create array for reverse indices
+  // We traverse through all rows i 
+  // if it is a non zero row then add i to ridx array
+  // if not, push value -1, which means invalid
+  // For example if I = 10: [0, 1, 2, 3, 4, 5, ... 9] and non zero rows are [2, 4, 5]
+  // then ridx would have [-1, -1, 0, -1, 1, 2, -1, ...]
+  IType _ptr = 0;
+  for (IType i = 0; i < tt->dims[mode]; i++) {
+    if (nz_rows[_ptr] == i) {
+      ridx.push_back(_ptr);
+      _ptr++;
+    } else {
+      ridx.push_back(-1);
+    }
+  }
+}
+
+
+
 void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
-    Matrix** grams, int max_iters, double epsilon, 
+    Matrix** grams, SparseCPGrams* scpgrams, int max_iters, double epsilon, 
     int streaming_mode, int iter, bool use_alto) {
+
+      PrintSparseTensor(X);
+
+      IType nmodes = X->nmodes;
+      // Identify the non zero rows
+
+      vector<vector<size_t>> nz_rows((size_t)nmodes, 
+                                              vector<size_t> (0, 0));
+      vector<vector<size_t>> buckets((size_t)nmodes, 
+                                              vector<size_t> (0, 0));
+      vector<vector<size_t>> idx((size_t)nmodes, 
+                                          vector<size_t> (0, 0));
+      // For storing mappings of indices in I to indices in rowind
+      // Without this we had to traverse through all rowind to find the 
+      // matching index
+      vector<vector<int>> ridx((size_t)nmodes, 
+                                        vector<int> (0, 0));
+
+
+      for (IType m = 0; m < nmodes; ++m) {
+        if (m == streaming_mode) continue;
+
+        nonzero_slices(
+          X, m, nz_rows[m], idx[m], ridx[m], buckets[m]
+        );
+        IType nnzr = nz_rows[m].size();
+        size_t * rowind = &nz_rows[m][0];
+
+        printf("non zero rows for mode %d\n", m);
+        for (int i = 0; i < nnzr; ++i) {
+          printf("%d ", rowind[i]);
+        }
+        printf("\n");
+      }
+
+      if (iter == 1) exit(1);
+
+      // What stuf
         return;
 };
 
@@ -758,4 +989,77 @@ static double cpstream_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FTy
   free(tmp_gram);
 
   return ret;
+}
+
+SparseCPGrams * InitSparseCPGrams(IType nmodes, IType rank) {
+  SparseCPGrams * grams = (SparseCPGrams *) malloc(sizeof(SparseCPGrams));
+  
+  assert(grams);
+
+  grams->c_nz_prev = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+  grams->c_z_prev = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+
+  grams->c_nz = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+  grams->c_z = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+
+  grams->h_nz = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+  grams->h_z = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+
+  grams->c = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+  grams->h = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+
+  grams->c_prev = (Matrix **) malloc(nmodes * sizeof(Matrix *));
+
+  for (IType m = 0; m < nmodes; ++m) {
+    grams->c_nz_prev[m] = init_mat(rank, rank);
+    grams->c_z_prev[m] = init_mat(rank, rank);
+
+    grams->c_nz[m] = init_mat(rank, rank);
+    grams->c_z[m] = init_mat(rank, rank);
+
+    grams->h_nz[m] = init_mat(rank, rank);
+    grams->h_z[m] = init_mat(rank, rank);
+
+    grams->c[m] = init_mat(rank, rank);
+    grams->h[m] = init_mat(rank, rank);
+
+    grams->c_prev[m] = init_mat(rank, rank);    
+  }
+
+  return grams;
+}
+
+void DeleteSparseCPGrams(SparseCPGrams * grams, IType nmodes) {
+  for (IType m = 0; m < nmodes; ++m) {
+    free_mat(grams->c_nz_prev[m]);
+    free_mat(grams->c_z_prev[m]);
+
+    free_mat(grams->c_nz[m]);
+    free_mat(grams->c_z[m]);
+
+    free_mat(grams->h_nz[m]);
+    free_mat(grams->h_z[m]);
+
+    free_mat(grams->c[m]);
+    free_mat(grams->h[m]);
+
+    free_mat(grams->c_prev[m]);
+  }
+
+  free(grams->c_nz_prev);
+  free(grams->c_z_prev);
+
+  free(grams->c_nz);
+  free(grams->c_z);
+
+  free(grams->h_nz);
+  free(grams->h_z);
+
+  free(grams->c);
+  free(grams->h);
+
+  free(grams->c_prev);
+
+  free(grams);
+  return;
 }

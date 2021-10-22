@@ -56,5 +56,6 @@ void sptensor_write_file(
   FILE * fout);
 
 void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X);
+void PrintSparseTensor(SparseTensor* X);
 
 #endif // SPTENSOR_HPP_

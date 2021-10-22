@@ -330,7 +330,7 @@ void sptensor_write_file(
   /* write sparse tensor in COO format*/
   for (IType n=0; n<sptensor->nnz; ++n) {
     for (IType m=0; m < sptensor->nmodes; ++m) {
-      fprintf(fout, "%d\t", sptensor->cidx[m][n]);
+      fprintf(fout, "%llu\t", sptensor->cidx[m][n]);
     }
     // Print values
     fprintf(fout, "%f\n", sptensor->vals[n]);
@@ -358,4 +358,33 @@ void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
 	}
 	fprintf(stdout, "]\n");
 	fprintf(stdout, "NNZ             = %llu\n", nnz);
+}
+
+void PrintSparseTensor(SparseTensor* X)
+{
+	IType* dims = X->dims;
+	IType nnz = X->nnz;
+	int nmodes = X->nmodes;
+
+	IType tmp = 1;
+	for (int i = 0; i < nmodes; i++) {
+		tmp *= dims[i];
+	}
+	double sparsity = ((double)nnz) / tmp;
+	fprintf(stdout, "# Modes         = %u\n", nmodes);
+	fprintf(stdout, "Sparsity        = %f\n", sparsity);
+	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	for (int i = 1; i < nmodes; i++) {
+		fprintf(stdout, " X %llu", dims[i]);
+	}
+	fprintf(stdout, "]\n");
+	fprintf(stdout, "NNZ             = %llu\n", nnz);
+
+  for (IType n = 0; n < X->nnz; ++n) {
+    for (int m = 0; m < nmodes; ++m) {
+      fprintf(stdout, "%llu", X->cidx[m][n]);
+      if (m != nmodes - 1) fprintf(stdout, "\t");
+    }
+    fprintf(stdout, "\n");
+  }
 }
