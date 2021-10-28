@@ -30,6 +30,16 @@ Matrix * zero_mat(IType nrows, IType ncols) {
     return mat;
 };
 
+Matrix * ones_mat(IType nrows, IType ncols) {
+    Matrix * mat = init_mat(nrows, ncols);
+    for (int i = 0; i < mat->I; ++i) {
+        for (int j = 0; j < mat->J; ++j) {
+            mat->vals[j + (i * ncols)] = 1.0;
+        }
+    }
+    return mat;
+};
+
 void grow_mat(IType nrows, IType ncols) {
     // Add implementation
 }
@@ -43,7 +53,7 @@ void free_mat(Matrix * mat) {
 // This matmul function has to accomodate 
 // the Kruskal model which keeps track of the factor matrix in double pointer format
 // rather than using the Matrix struct
-void my_matmul(
+void matmul(
   FType * A,
   bool transA,
   FType * B,
@@ -70,6 +80,35 @@ void my_matmul(
         B, LDB,
         beta,
         C, LDC);
+}
+
+void matmul(
+  Matrix const * const A,
+  bool transA,
+  Matrix const * const B,
+  bool transB,
+  Matrix  * const C, FType beta = 0.0) {
+    int const M = transA ? A->J : A->I;
+    int const N = transB ? B->I : B->J;
+    int const K = transA ? A->I : A->J;
+    int const LDA = A->J;
+    int const LDB = B->J;
+    int const LDC = N;
+
+    assert(K == (int)(transB ? B->J : B->I));
+    assert((int)(C->I * C->J) <= M*N);
+
+    /* TODO precision! (double vs not) */
+    cblas_dgemm(
+        CblasRowMajor,
+        transA ? CblasTrans : CblasNoTrans,
+        transB ? CblasTrans : CblasNoTrans,
+        M, N, K,
+        1.,
+        A->vals, LDA,
+        B->vals, LDB,
+        beta,
+        C->vals, LDC);
 }
 
 double mat_norm_diff(FType * matA, FType * matB, IType size) {
@@ -99,7 +138,7 @@ void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode) {
     for (IType m = 0; m < nmodes; ++m) {
         if (m == mode) continue;
         for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
-            out_mat->vals[i] *= aTa[mode]->vals[i];        
+            out_mat->vals[i] *= aTa[m]->vals[i];        
         }
     }
 };
@@ -163,3 +202,69 @@ void copy_upper_tri(Matrix * M) {
     }
   }  
 };
+
+/**
+ * @brief
+ * Solves AX=B using Cholesky factorizatin
+ * Applies frobenius regularization and assumes cholesky factorization
+ * always works, Solution is updated in B
+ */
+void pseudo_inverse(Matrix * A, Matrix * B)
+{
+    // Cholesky factorization requires a square matrix
+    assert(A->I == A->J);
+    // Housekeeping
+    assert(A->I == B->J);
+
+    // Set up variables for POTRF call
+    char uplo = 'L';
+    lapack_int I = (lapack_int)A->I;
+    lapack_int J = (lapack_int)B->I;
+    lapack_int info;
+    lapack_int s_info;
+
+    // Apply frobenius regularization (1e-12)
+    // This helps stablity 
+    for (int i = 0; i < I; ++i) {
+        A->vals[i * I + i] += 1e-12;
+    }
+
+    POTRF(&uplo, &I, A->vals, &I, &info);
+
+    if (info != 0) {
+        // Loud failure message
+        fprintf(stderr, "ALTO: Cholesky factorization failed. No fallback implemented!");
+    }
+    else {
+        POTRS(&uplo, &I, &J, A->vals, &I,
+          B->vals, &I, &s_info);    
+    }
+}
+
+void mat_aTa(
+  Matrix const * const A,
+  Matrix * const ret)
+{
+    MKL_INT m = A->I;
+    MKL_INT n = A->J;
+    MKL_INT lda = n;
+    MKL_INT ldc = n;
+    FType alpha = 1.0;
+    FType beta = 0.0;
+    
+    CBLAS_ORDER layout = CblasRowMajor;
+    CBLAS_UPLO uplo = CblasUpper;
+    CBLAS_TRANSPOSE trans = CblasTrans;
+    SYRK(layout, uplo, trans, n, m, alpha, A->vals, lda, beta, ret->vals, ldc);
+}
+
+FType mat_trace(Matrix * mat)
+{
+    assert(mat->I == mat->J);
+    FType tr = 0.0;
+    for (int i = 0; i < mat->I * mat->J; ++i) 
+    {
+        tr += mat->vals[i * mat->I + i];
+    }
+    return tr;
+}

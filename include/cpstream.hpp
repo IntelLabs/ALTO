@@ -10,6 +10,7 @@
 #include "alto.hpp"
 #include "gram.hpp"
 #include "mttkrp.hpp"
+#include "rowsparse_mttkrp.hpp"
 
 #include <vector>
 
@@ -47,6 +48,7 @@ void cpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
     int streaming_mode, int iter, bool use_alto);
 
 void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
+    RowSparseMatrix ** A_nz, RowSparseMatrix ** A_nz_prev,
     Matrix** grams, SparseCPGrams * scpgrams, int max_iters, double epsilon, 
     int streaming_mode, int iter, bool use_alto);
 

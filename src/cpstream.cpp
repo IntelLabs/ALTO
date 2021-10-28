@@ -4,7 +4,11 @@
 #include <algorithm>
 
 using namespace std;
-// #define DEBUG 1
+#define DEBUG 1
+
+#if DEBUG == 1
+    char _str[512];
+#endif
 
 // Implementations
 void cpstream(
@@ -19,16 +23,18 @@ void cpstream(
     double t_preprocess = 0.0;
     double tot_preprocess = 0.0;
 
+    IType nmodes = X->nmodes;
+
     // Step 1. Preprocess SparseTensor * X
     printf("Processing Streaming Sparse Tensor\n");
     StreamingSparseTensor sst(X, streaming_mode);
     sst.print_tensor_info();
-        
+
     // Step 2. Prepare variables and load first time batch
     // Instantiate kruskal models
     KruskalModel * M; // Keeps track of current factor matrices
     KruskalModel * prev_M; // Keeps track of previous factor matrices
-        
+
     Matrix ** grams;
     // concatencated s_t's
     Matrix * local_time = zero_mat(1, rank);
@@ -36,11 +42,13 @@ void cpstream(
 
 #if 1
     // Hypersparse ALS specific
-    SparseCPGrams * scpgrams = InitSparseCPGrams(X->nmodes, rank);
-    DeleteSparseCPGrams(scpgrams, X->nmodes);
+    SparseCPGrams * scpgrams = InitSparseCPGrams(nmodes, rank);
+
+    RowSparseMatrix ** A_nz_prev = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
+    RowSparseMatrix ** A_nz = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
 
     Matrix ** Q_Phi_inv;
-    
+
     int it = 0;
     while (!sst.last_batch()) {
         SparseTensor * t_batch = sst.next_batch();
@@ -71,16 +79,27 @@ void cpstream(
             }
         }
 
+        // TODO: We need to compute c, h
+        // before we start the iteration
+        // Do we need to pass in A_nz, A
         spcpstream_iter(
           t_batch,
-          M, prev_M, grams, scpgrams,
+          M, prev_M, A_nz, A_nz_prev, grams, scpgrams,
           max_iters, epsilon, streaming_mode, it, use_alto
         );
+
+        // Compute A_z..  (outside of the iteration)
+
+        // Update M based on A_nz and A_z
+        // Copy M -> prev_M
+        // Copy A_nz -> A_nz_prev
+        // Copy scpgrams->c_nz -> scpgrams->c_nz_prev
 
 
         DestroySparseTensor(t_batch);
         ++it;
     }
+    DeleteSparseCPGrams(scpgrams, X->nmodes);
 
     return;
     /*
@@ -93,7 +112,7 @@ void cpstream(
    // Matrix ** c_nz_prev = (Matrix**)malloc()
 
     int it = 0;
-    while(!sst.last_batch()) {   
+    while(!sst.last_batch()) {
         // Get next time batch
         SparseTensor * t_batch = sst.next_batch();
         PrintTensorInfo(rank, max_iters, t_batch);
@@ -129,12 +148,15 @@ void cpstream(
 
         // Set s_t to the latest row of global time stream matrix
         cpstream_iter(
-            t_batch, M, prev_M, grams, 
+            t_batch, M, prev_M, grams,
             max_iters, epsilon, streaming_mode, it, use_alto);
 
 
-        spcpstream_iter(t_batch, M, prev_M, grams, 
-            max_iters, epsilon, streaming_mode, it, use_alto);
+#if DEBUG == 1
+        exit(1);
+#endif
+        // spcpstream_iter(t_batch, M, prev_M, grams,
+        //     max_iters, epsilon, streaming_mode, it, use_alto);
 
         // Save checkpoints
 
@@ -161,10 +183,10 @@ void cpstream(
         if (m == streaming_mode) {
             // Copy from global_time Stream matrix
             memcpy(factored->U[m], global_time->mat()->vals, rank * X->dims[m] * sizeof(FType));
-        } 
+        }
         else {
             // Are there cases where X->dims[m] > M->dims[m]?
-            memcpy(factored->U[m], M->U[m], M->dims[m] * rank * sizeof(FType)); 
+            memcpy(factored->U[m], M->U[m], M->dims[m] * rank * sizeof(FType));
         }
     }
     memcpy(factored->lambda, M->lambda, rank * sizeof(FType));
@@ -178,21 +200,21 @@ void cpstream(
     destroy_grams(grams, M);
     DestroyKruskalModel(M);
     DestroyKruskalModel(prev_M);
-    return;    
+    return;
 #endif // spcp-stream dev mode
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void cpstream_iter(
   SparseTensor* X, KruskalModel* M, KruskalModel* prev_M, Matrix** grams,
-  int max_iters, double epsilon, 
+  int max_iters, double epsilon,
   int streaming_mode, int iteration, bool use_alto)
 {
-    fprintf(stdout, 
+    fprintf(stdout,
         "Running CP-Stream (%s, iter: %d) with %d max iterations and %.2e epsilon\n",
         use_alto ? "ALTO" : "Non ALTO", iteration, max_iters, epsilon);
 
-    // Timing stuff 
+    // Timing stuff
     InitTSC();
     uint64_t ticks_start = 0;
     uint64_t ticks_end = 0;
@@ -242,7 +264,7 @@ void cpstream_iter(
 
         // Create local fiber copies
         create_da_mem(-1, rank, AT, &ofibs);
-    		END_TIMER(&ticks_end);
+        END_TIMER(&ticks_end);
         ELAPSED_TIME(ticks_start, ticks_end, &t_alto);
     }
     // end if use alto
@@ -305,7 +327,7 @@ void cpstream_iter(
     Matrix * old_gram = zero_mat(rank, rank);
 
     int tmp_iter = 0;
-    for(int i = 0; i < max_iters; i++) {    
+    for(int i = 0; i < max_iters; i++) {
         delta = 0.0;
         // Solve for time mode (s_t)
         // set to zero
@@ -315,13 +337,12 @@ void cpstream_iter(
 
         if (use_alto) {
             mttkrp_alto_par(streaming_mode, M->U, rank, AT, NULL, ofibs);
-	    }
+        }
         else {
             mttkrp_par(X, M, streaming_mode, writelocks);
         }
-
         END_TIMER(&ticks_end);
-        
+
 #if DEBUG == 1
     PrintFPMatrix("mttkrp before s_t", M->U[streaming_mode], 1, rank);
 #endif
@@ -332,12 +353,12 @@ void cpstream_iter(
     // Init gram matrix aTa for all other modes
     pseudo_inverse_stream(
       grams, M, streaming_mode, streaming_mode);
-		END_TIMER(&ticks_end);
-		AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
+    END_TIMER(&ticks_end);
+    AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
 
 #if DEBUG == 1
     printf("s_t\n");
-    for (int r = 0; r < rank; ++r) { 
+    for (int r = 0; r < rank; ++r) {
       printf("%e\t", M->U[streaming_mode][r]);
     }
     printf("\n");
@@ -349,7 +370,7 @@ void cpstream_iter(
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     // exit(1);
 
-#if DEBUG == 1    
+#if DEBUG == 1
     PrintMatrix("gram mat before updating s_t", grams[streaming_mode]);
 #endif
 
@@ -362,7 +383,7 @@ void cpstream_iter(
       }
     }
     // PrintFPMatrix("streaming mode factor matrix", M->U[streaming_mode], rank, 1);
-#if DEBUG == 1    
+#if DEBUG == 1
     PrintMatrix("gram mat after updating s_t", grams[streaming_mode]);
 #endif
     // set up temporary data structures
@@ -382,7 +403,8 @@ void cpstream_iter(
         // MTTKRP
         memset(M->U[j], 0, sizeof(FType) * dims[j] * rank);
         BEGIN_TIMER(&ticks_start);
-#if DEBUG == 1    
+
+#if DEBUG == 1
         char str[512];
         sprintf(str, "M[%d] before mttkrp", j);
         PrintFPMatrix(str, M->U[j], M->dims[j], rank);
@@ -391,7 +413,7 @@ void cpstream_iter(
 
         if (use_alto) {
             mttkrp_alto_par(j, M->U, rank, AT, NULL, ofibs);
-	    }
+      }
         else {
             mttkrp_par(X, M, j, writelocks);
         }
@@ -426,7 +448,7 @@ void cpstream_iter(
             // int n = (int)rank;
             // int k = (int)(M->dims[m]);
             // int l = (int)rank;
-            my_matmul(prev_M->U[m], true, M->U[m], false, historical->vals, prev_M->dims[m], rank, M->dims[m], rank, 0.0);
+            matmul(prev_M->U[m], true, M->U[m], false, historical->vals, prev_M->dims[m], rank, M->dims[m], rank, 0.0);
 
             for (int x = 0; x < rank * rank; ++x) {
                 ata_buf->vals[x] *= historical->vals[x];
@@ -446,9 +468,9 @@ void cpstream_iter(
         sprintf(str, "mttkrp part for mode %d", j);
         PrintFPMatrix(str, M->U[j], M->dims[j], rank);
         memset(str, 0, 512);
-#endif            
+#endif
 
-        my_matmul(prev_M->U[j], false, ata_buf->vals, false, M->U[j], prev_M->dims[j], rank, rank, rank, 1.0);    
+        matmul(prev_M->U[j], false, ata_buf->vals, false, M->U[j], prev_M->dims[j], rank, rank, rank, 1.0);
         END_TIMER(&ticks_end);
         AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_aux);
 
@@ -470,14 +492,14 @@ void cpstream_iter(
         memset(str, 0, 512);
 
         // PrintKruskalModel(M);
-#endif      
+#endif
 
         // Normalize columns
         // printf("Lambda before norm\n");
         // for (int ii = 0; ii < M->rank; ++ii) {
         //   printf("%f\t", M->lambda[ii]);
         // }
-        
+
         // printf("\n");
         BEGIN_TIMER(&ticks_start);
         if(i == 0) {
@@ -504,8 +526,8 @@ void cpstream_iter(
       // PrintFPMatrix("Grams", rank, rank, grams[j], rank);
       // PrintFPMatrix("Lambda", 1, rank, M->lambda, rank);
       END_TIMER(&ticks_end);
-      AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_aux);      
-      
+      AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_aux);
+
       int factor_mat_size = rank * M->dims[j];
       delta += mat_norm_diff(prev_M->U[j], M->U[j], factor_mat_size) / (mat_norm(M->U[j], factor_mat_size) + 1e-12);
 
@@ -517,7 +539,7 @@ void cpstream_iter(
 #endif
 
     // calculate fit
-    
+
     BEGIN_TIMER(&ticks_start);
     fit = cpstream_fit(X, M, grams, scratch);
     END_TIMER(&ticks_end);
@@ -569,108 +591,13 @@ void cpstream_iter(
     printf("%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", iteration, X->nnz, num_inner_iter, t_sm_mttkrp, t_sm_backsolve, t_m_mttkrp, t_m_backsolve, t_fit, t_aux, t_norm, t_alto);
 }
 
-
-void idxsort_hist(
-  const SparseTensor * const tt, 
-  const IType mode, 
-  vector<size_t>& idx, 
-  vector<size_t>& buckets) {
-  if (idx.size() != tt->nnz) {
-    idx.resize(tt->nnz);
-  }
-
-  #pragma omp parallel for schedule(static)
-  for (size_t i = 0; i < tt->nnz; ++i) {
-    idx[i] = i;
-  }
-
-  std::sort(idx.begin(), idx.end(), [&](size_t x, size_t y) {
-      return (tt->cidx[mode][x] < tt->cidx[mode][y]);});
-
-  IType* hists;
-  IType num_bins;
-  size_t* counts;
-
-  #pragma omp parallel
- {
-   int nthreads = omp_get_num_threads();
-   int tid = omp_get_thread_num();
-   size_t start = (tt->nnz * tid) / nthreads;
-   size_t end = (tt->nnz * (tid+1)) / nthreads;
-
-
-   size_t my_first = std::numeric_limits<size_t>::max();
-   size_t my_last = std::numeric_limits<size_t>::max();
-   size_t my_unique = 0;
-   if (start == 0 && start < end) { // first thread with elements
-     ++start;
-     my_first = 0;
-     my_unique = 1;
-   }
-
-  for (size_t i = start; i < end; ++i) {
-    if (tt->cidx[mode][idx[i]] != tt->cidx[mode][idx[i-1]]) {
-      if (my_first > i) {
-        my_first = i;
-      }
-      ++my_unique;
-      my_last = i;
-    }
-  }
-
-  // get total count and prefix sum of `my_unique`
-  // TODO: this impleementation is pretty ad-hoc and has a lot of potential
-  // to be improved (if necessary - currently this is not even close to a
-  // bottleneck)
-#pragma omp single
-  {
-    counts = (size_t*) malloc(nthreads*sizeof(size_t));
-  }
-#pragma omp barrier
-  counts[tid] = my_unique; // FIXME: lots of false sharing here
-  // prefix
-#pragma omp barrier
-
-  size_t my_prefix = 0;
-  size_t num_unique = 0;
-  for (int i = 0; i < tid; ++i) {
-    my_prefix += counts[i];
-  }
-  for (int i = 0; i < nthreads; ++i) {
-    num_unique += counts[i];
-  }
-
-  // create bucket offset array from sorted order
-  #pragma omp single
-  {
-    num_bins = num_unique;
-    buckets.resize(num_bins+1);
-    buckets[0] = 0;
-    buckets[num_bins] = tt->nnz;
-  }
-  #pragma omp barrier
-
-  if (my_first <= my_last && my_last < tt->nnz) {
-    IType c = my_prefix;
-    buckets[c] = my_first;
-    for (size_t i = my_first+1; i < my_last+1; ++i) {
-      if (tt->cidx[mode][idx[i]] != tt->cidx[mode][idx[i-1]]) {
-        ++c;
-        buckets[c] = i;
-      }
-    }
-  }
- }
-}
-
-
 // add reverse idx
 void nonzero_slices(
     SparseTensor * const tt, const IType mode,
     vector<size_t> &nz_rows,
     vector<size_t> &idx,
     vector<int> &ridx,
-    vector<size_t> &buckets) 
+    vector<size_t> &buckets)
 {
   idxsort_hist(tt, mode, idx, buckets);
   size_t num_bins = buckets.size() - 1;
@@ -679,7 +606,7 @@ void nonzero_slices(
     nz_rows.push_back(tt->cidx[mode][idx[buckets[i]]]);
   }
   // Create array for reverse indices
-  // We traverse through all rows i 
+  // We traverse through all rows i
   // if it is a non zero row then add i to ridx array
   // if not, push value -1, which means invalid
   // For example if I = 10: [0, 1, 2, 3, 4, 5, ... 9] and non zero rows are [2, 4, 5]
@@ -695,51 +622,325 @@ void nonzero_slices(
   }
 }
 
+void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
+    RowSparseMatrix ** A_nz, RowSparseMatrix ** A_nz_prev,
+    Matrix** grams, SparseCPGrams* scpgrams, int max_iters, double epsilon,
+    int streaming_mode, int iteration, bool use_alto)
+{
+  /* Unpack stuff */
+  // basic params
+  int nmodes = X->nmodes;
+  IType* dims = X->dims;
+  IType rank = M->rank;
+  IType nthreads = omp_get_max_threads();
+
+  // Unpack scpgrams;
+  Matrix ** c = scpgrams->c;
+  Matrix ** h = scpgrams->h;
+
+  Matrix ** c_nz = scpgrams->c_nz;
+  Matrix ** h_nz = scpgrams->h_nz;
+
+  Matrix ** c_z = scpgrams->c_z;
+  Matrix ** h_z = scpgrams->h_z;
+
+  Matrix ** c_prev = scpgrams->c_prev;
+  Matrix ** c_z_prev = scpgrams->c_z_prev;
+  Matrix ** c_nz_prev = scpgrams->c_nz_prev;
+  /* End: Unpack stuff */
+
+  /* Init variables */
+  int num_inner_iter = 0;
+  // keep track of the fit for convergence check
+  double fit = 0.0, prev_fit = 0.0, delta = 0.0, prev_delta = 0.0;
+
+  // Used to store non_zero row informatoin for all modes
+  vector<vector<size_t>> nz_rows((size_t)nmodes, vector<size_t> (0, 0));
+  vector<vector<size_t>> buckets((size_t)nmodes, vector<size_t> (0, 0));
+  vector<vector<size_t>> idx((size_t)nmodes, vector<size_t> (0, 0));
+  // For storing mappings of indices in I to indices in rowind
+  vector<vector<int>> ridx((size_t)nmodes, vector<int> (0, 0));
+
+  Matrix * Q = init_mat(rank, rank);
+  Matrix * Phi = init_mat(rank, rank);
+  Matrix * old_gram = zero_mat(rank, rank);
+
+  /* End: Init variables */
+
+  /* Housekeeping - Generic, repetitive code */
+  // set up OpenMP locks
+  IType max_mode_len = 0;
+  for(int i = 0; i < M->mode; i++) {
+      if(max_mode_len < M->dims[i]) {
+          max_mode_len = M->dims[i];
+      }
+  }
+  omp_lock_t* writelocks = (omp_lock_t*) AlignedMalloc(sizeof(omp_lock_t) *
+                                                      max_mode_len);
+  assert(writelocks);
+  for(IType i = 0; i < max_mode_len; i++) {
+      omp_init_lock(&(writelocks[i]));
+  }
+  // Lambda scratchpad
+  FType ** lambda_sp = (FType **) AlignedMalloc(sizeof(FType*) * nthreads);
+  assert(lambda_sp);
+  #pragma omp parallel for
+  for (IType t = 0; t < nthreads; ++t) {
+      lambda_sp[t] = (FType *) AlignedMalloc(sizeof(FType) * rank);
+      assert(lambda_sp[t]);
+  }
+  /* End: Housekeeping */
+
+#if DEBUG == 1
+  PrintSparseTensor(X);
+#endif
+
+  // ==== Step 0. ==== Normalize factor matrices for first iteration
+  if (iteration == 0) {
+      for (int m = 0; m < nmodes; ++m) {
+          if (m == streaming_mode) continue;
+          KruskalModelNorm(M, m, MAT_NORM_2, lambda_sp);
+      }
+      for (int r = 0; r < rank; ++r) {
+          // Just normalize the columns and reset the lambda
+          M->lambda[r] = 1.0;
+      }
+  }
+
+  // ==== Step 1. ==== Updating c[m], h[m], A_nz_prev[m]
+  for (IType m = 0; m < nmodes; ++m) {
+    if (m == streaming_mode) continue;
+
+    // Identify nonzero slices for all modes
+    nonzero_slices(
+      X, m, nz_rows[m], idx[m], ridx[m], buckets[m]
+    );
+
+    size_t nnzr = nz_rows[m].size();
+    size_t * rowind = &nz_rows[m][0];
+
+    // Use two times for prev_M and M
+    Matrix * _fm = init_mat(M->dims[m], M->rank);
+
+    memcpy(_fm->vals, prev_M->U[m], prev_M->dims[m] * rank * sizeof(FType));
+    // Updating A_nz_prev[m]
+    A_nz_prev[m] = convert_to_rspmat(_fm, nnzr, rowind);
+    // Updating h[m]
+    matmul(
+      prev_M->U[m], true,
+      M->U[m], false, h[m]->vals,
+      prev_M->dims[m], rank, M->dims[m], rank, 0.0);
+    // Updating c[m]
+    memcpy(_fm->vals, M->U[m], M->dims[m] * rank * sizeof(FType));
+    mat_aTa(_fm, c[m]);
+
+    free_mat(_fm);
+#if 0
+    printf("non zero rows for mode %llu\n", m);
+    for (int i = 0; i < nnzr; ++i) {
+      printf("%zu ", rowind[i]);
+    }
+    printf("\n");
+
+    printf("idx for mode %llu\n", m);
+    for (int i = 0; i < X->nnz; ++i) {
+      printf("%zu ", idx[m][i]);
+    }
+    printf("\n");
+
+    printf("ridx for mode %llu\n", m);
+    for (int i = 0; i < ridx[m].size(); ++i) {
+      printf("%d ", ridx[m][i]);
+    }
+    printf("\n");
+#endif
+  }
+
+  // ==== Step 2. ==== Compute c_z_prev using c_prev, c_nz_prev - it > 0
+  if (iteration > 0) {
+    for (IType m = 0; m < nmodes; ++m) {
+      if (m == streaming_mode) continue;
+      Matrix * _fm = init_mat(M->dims[m], rank);
+      memcpy(_fm->vals, M->U[m], M->dims[m] * rank * sizeof(FType));
+      mataTa_idx_based(_fm, nz_rows[m], c_nz_prev[m]);
+
+      for (IType i = 0; i < rank * rank; ++i) {
+        c_z_prev[m]->vals[i] = c_prev[m]->vals[i] - c_nz_prev[m]->vals[i];
+      }
+      free_mat(_fm);
+    }
+  }
+
+  // ==== Step 3. ==== Set A_nz for all modes
+  for (IType m = 0; m < nmodes; ++m) {
+    if (m == streaming_mode) {
+      A_nz[m] = rspmat_init(1, rank, 1);
+    } else {
+      Matrix * _fm = init_mat(M->dims[m], rank);
+      memcpy(_fm->vals, M->U[m], M->dims[m] * rank * sizeof(FType));
+      A_nz[m] = convert_to_rspmat(_fm, nz_rows[m].size(), &nz_rows[m][0]);
+      free_mat(_fm);
+    }
+  }
 
 
-void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
-    Matrix** grams, SparseCPGrams* scpgrams, int max_iters, double epsilon, 
-    int streaming_mode, int iter, bool use_alto) {
+  // ==== Step 4. ==== Inner iteration for-loop
+  int tmp_iter = 0; // To log number of iterations until convergence
+  for (int i = 0; i < max_iters; i++) {
+    delta = 0.0; // Reset to 0.0 for every iteration
 
-      PrintSparseTensor(X);
+    // ==== Step 4-1. ===== Compute s_t
+    FType * s_t = M->U[streaming_mode];
+    memset(s_t, 0, rank * sizeof(FType));
+    mttkrp_par(X, M, streaming_mode, writelocks); // Use regular mttkrp
 
-      IType nmodes = X->nmodes;
-      // Identify the non zero rows
+#if DEBUG == 1
+    PrintFPMatrix("s_t before solve", s_t, 1, rank);
+#endif
 
-      vector<vector<size_t>> nz_rows((size_t)nmodes, 
-                                              vector<size_t> (0, 0));
-      vector<vector<size_t>> buckets((size_t)nmodes, 
-                                              vector<size_t> (0, 0));
-      vector<vector<size_t>> idx((size_t)nmodes, 
-                                          vector<size_t> (0, 0));
-      // For storing mappings of indices in I to indices in rowind
-      // Without this we had to traverse through all rowind to find the 
-      // matching index
-      vector<vector<int>> ridx((size_t)nmodes, 
-                                        vector<int> (0, 0));
+    pseudo_inverse_stream(grams, M, streaming_mode, streaming_mode);
+    // Update A_nz[streaming_mode]
+    memcpy(A_nz[streaming_mode]->mat->vals, s_t, rank * sizeof(FType));
 
+#if DEBUG == 1
+    PrintFPMatrix("s_t after solve", M->U[streaming_mode], 1, rank);
+#endif
 
-      for (IType m = 0; m < nmodes; ++m) {
-        if (m == streaming_mode) continue;
+    // ==== Step 4-2. ==== Compute G_t-1(old_gram), G_t-1 + ssT (grams[streaming_mode])
+    // Update gram matrix
+    copy_upper_tri(grams[streaming_mode]);
+    // Copy newly computed gram matrix G_t to old_gram
+    memcpy(old_gram->vals, grams[streaming_mode]->vals, rank * rank * sizeof(*grams[streaming_mode]->vals));
 
-        nonzero_slices(
-          X, m, nz_rows[m], idx[m], ridx[m], buckets[m]
-        );
-        IType nnzr = nz_rows[m].size();
-        size_t * rowind = &nz_rows[m][0];
+#if DEBUG == 1
+    PrintMatrix("gram mat before updating s_t", grams[streaming_mode]);
+#endif
 
-        printf("non zero rows for mode %d\n", m);
-        for (int i = 0; i < nnzr; ++i) {
-          printf("%d ", rowind[i]);
-        }
-        printf("\n");
+    // Accumulate new time slice into temporal Gram matrix
+    // Update grams
+    for (int m = 0; m < rank; ++m) {
+      for (int n = 0; n < rank; ++n) {
+          // Hard coded forgetting factor?
+          grams[streaming_mode]->vals[m + n * rank] += s_t[m] * s_t[n];
+      }
+    }
+
+#if DEBUG == 1
+    PrintMatrix("gram mat after updating s_t", grams[streaming_mode]);
+#endif
+    // Maintainence; updating c and h gram matrices
+    // to incorporate latest s_t, this may not be needed
+    // If we clean out the Matrix ** grams part
+    // This just makes it more explicit
+    memcpy(h[streaming_mode]->vals, old_gram->vals, rank * rank * sizeof(FType));
+    memcpy(c[streaming_mode]->vals, grams[streaming_mode]->vals, rank * rank * sizeof(FType));
+
+    // ==== Step 4-3. ==== Compute for all other modes
+    for(int m = 0; m < X->nmodes; m++) {
+      if (m == streaming_mode) continue;
+
+      // ==== Step 4-3-1. ==== Compute Phi[m], Q[m]
+      // h[sm], c[sm] each contains old_gram, old_gram * s*s.T
+      mat_form_gram(h, Q, nmodes, m);
+      mat_form_gram(c, Phi, nmodes, m);
+
+#if DEBUG == 1
+      memset(_str, 0, 512);
+      sprintf(_str, "Before mttkrp: %d, A_nz[%d]", iteration, m);
+      PrintRowSparseMatrix(_str, A_nz[m]);
+#endif
+
+#if 0 // In case we need to check input to rowsparse_mttkrp
+  // Print all input rsp_mats
+      for (int _m = 0; _m < nmodes; ++_m) {
+        PrintRowSparseMatrix("rsp mat", A_nz[_m]);
+      }
+#endif
+      // ==== Step 4-3-2. ==== Compute rowsparse MTTKRP for mode m
+      RowSparseMatrix * mttkrp_res = rowsparse_mttkrp(
+        X, A_nz, m, streaming_mode,
+        idx[m], ridx, buckets[m]);
+
+#if DEBUG == 1
+      memset(_str, 0, 512);
+      sprintf(_str, "After mttkrp: %d, A_nz[%d]", iteration, m);
+      PrintRowSparseMatrix(_str, mttkrp_res);
+#endif
+
+      // ==== Step 4-3-3 ==== Add historical (mttkrp_res + A_nz_prev[m] * Q[m])
+      // TODO: ????? Do we update A_nz_prev between iterations or is A_nz_prev static for
+      // current time slice
+      RowSparseMatrix * A_nz_prev_Q = rsp_mat_mul(A_nz_prev[m], Q);
+      rsp_mat_add(mttkrp_res, A_nz_prev_Q);
+
+      // ==== Step 4-3-4 Solve for A_nz ====
+      Matrix * _Phi = init_mat(rank, rank);
+      memcpy(_Phi->vals, Phi->vals, rank * rank * sizeof(FType));
+      pseudo_inverse(_Phi, mttkrp_res->mat);
+
+      // ==== Step 4-3-5 Update h_nz[m] c_nz[m] ====
+      rsp_mataTb(mttkrp_res, mttkrp_res, c_nz[m]);
+      rsp_mataTb(A_nz_prev[m], mttkrp_res, h_nz[m]);
+
+      // ==== Step 4-3-6 Solve for zero slices (h_z[m], c_z[m]) ====
+      memcpy(_Phi->vals, Phi->vals, rank * rank * sizeof(FType));
+      Matrix * _Q = init_mat(rank, rank);
+      memcpy(_Q->vals, Q->vals, rank * rank * sizeof(FType));
+
+      pseudo_inverse(_Phi, _Q); // _Q now is Q_Phi_inv
+
+      matmul(c_nz_prev[m], false, _Q, false, h_z[m], 0.0);
+      matmul(_Q, true, h_z[m], false, c_z[m], 0.0);
+
+      // ==== Step 4-3-7 Update h[m], c[m] ====
+      for (int i = 0; i < rank * rank; ++i) {
+        c[m]->vals[i] = c_nz[m]->vals[i] + c_z[m]->vals[i];
+        h[m]->vals[i] = h_nz[m]->vals[i] + h_z[m]->vals[i];
       }
 
-      if (iter == 1) exit(1);
+      // ==== Step 4-3-8 Compute delta ====
+      FType tr_c = mat_trace(c[m]);
+      FType tr_h = mat_trace(h[m]);
+      FType tr_c_prev = mat_trace(c_prev[m]);
 
-      // What stuf
-        return;
+      delta += sqrt(fabs(((tr_c + tr_c_prev - 2.0 * tr_h) / (tr_c + 1e-12))));
+
+#if DEBUG == 1
+      PrintRowSparseMatrix("After solve", mttkrp_res);
+#endif
+
+      free_mat(_Phi);
+      free_mat(_Q);
+      rspmat_free(mttkrp_res);
+      rspmat_free(A_nz_prev_Q);
+    }
+    printf("Delta: %f\n", delta);
+    exit(1);
+  } // end for loop: max_iters
+
+  // ==== Step 5. ==== Update factor matrices M->U[m]
+  // ==== Step 5-1. ==== Compute A_z[m]
+  // ==== Step 5-2. ==== Update M->U[m] = A_z[m] + A_nz[m]
+  for (int m = 0; m < nmodes; ++m) {
+    if (m == streaming_mode) continue; // Already done in previous steps
+    // else update non_zero rows first
+    // update zero rows next
+  }
+
+  // ==== Step 6. ==== Housekeeping...? 
+  // Copy M -> prevM
+  // Apply forgetting factor ..?
+
+  /* Cleaning up */
+  free_mat(Q);
+  free_mat(Phi);
+  free_mat(old_gram);
+
+  /* End: Cleaning up */
+  return;
 };
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Need a separate version so that we can selectively apply frob reg to stream mode only
@@ -794,7 +995,7 @@ static void pseudo_inverse_stream(
 #if DEBUG == 1
     PrintMatrix("before cholesky or factorization", Phi);
     // PrintFPMatrix("before solve: rhs", M->U[mode], (int)M->dims[mode] , rank);
-#endif    
+#endif
 
   // Try using Cholesky to find the pseudoinvsere of V
   // Setup parameters for LAPACK calls
@@ -804,7 +1005,7 @@ static void pseudo_inverse_stream(
   lapack_int I = (lapack_int)M->dims[mode];
   lapack_int info;
   POTRF(&uplo, &_rank, Phi->vals, &_rank, &info);
-  
+
   if(info == 0) {
     lapack_int s_info = 0;
 
@@ -825,7 +1026,7 @@ static void pseudo_inverse_stream(
 
   } else {
     fprintf(stderr, "ALTO: DPOTRF returned %d, Solving using GELSS\n", info);
-    
+
     // Otherwise use rank-deficient solver, GELSY
     // Restore V
     memcpy(Phi->vals, scratch, sizeof(FType) * rank * rank);
@@ -862,31 +1063,31 @@ static void pseudo_inverse_stream(
       }
 */
     GELSS(&_rank, &_rank, &I,
-        Phi->vals, &_rank, 
+        Phi->vals, &_rank,
         M->U[mode], &_rank,
-        conditions, &rcond, &ret_rank, 
+        conditions, &rcond, &ret_rank,
         &work_qr, &lwork, &info_dgelsy);
 
     lwork = (lapack_int) work_qr;
     double* work = (double*) AlignedMalloc(sizeof(double) * lwork);
 
-    GELSS(&_rank, &_rank, &I, 
-          Phi->vals, &_rank, 
+    GELSS(&_rank, &_rank, &I,
+          Phi->vals, &_rank,
           M->U[mode], &_rank,
-          conditions, &rcond, &ret_rank, 
+          conditions, &rcond, &ret_rank,
           work, &lwork, &info_dgelsy);
 
     if (info_dgelsy) {
       PrintMatrix("gram matrix", Phi);
       PrintFPMatrix("rhs", M->U[mode], I, rank);
-      fprintf(stderr, "\tDGELSS failed!! Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);    
+      fprintf(stderr, "\tDGELSS failed!! Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);
       exit(1);
     }
 
 #if DEBUG == 1
     // printf("uplo: %c, lda: %d, nrhs: %d, ldb: %d, info: %d\n", uplo, _rank, I, _rank, info_dgelsy);
     // fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);
-#endif    
+#endif
     free(work);
     free(jpvt);
   }
@@ -993,7 +1194,7 @@ static double cpstream_fit(SparseTensor* X, KruskalModel* M, Matrix** grams, FTy
 
 SparseCPGrams * InitSparseCPGrams(IType nmodes, IType rank) {
   SparseCPGrams * grams = (SparseCPGrams *) malloc(sizeof(SparseCPGrams));
-  
+
   assert(grams);
 
   grams->c_nz_prev = (Matrix **) malloc(nmodes * sizeof(Matrix *));
@@ -1011,19 +1212,19 @@ SparseCPGrams * InitSparseCPGrams(IType nmodes, IType rank) {
   grams->c_prev = (Matrix **) malloc(nmodes * sizeof(Matrix *));
 
   for (IType m = 0; m < nmodes; ++m) {
-    grams->c_nz_prev[m] = init_mat(rank, rank);
-    grams->c_z_prev[m] = init_mat(rank, rank);
+    grams->c_nz_prev[m] = ones_mat(rank, rank);
+    grams->c_z_prev[m] = ones_mat(rank, rank);
 
-    grams->c_nz[m] = init_mat(rank, rank);
-    grams->c_z[m] = init_mat(rank, rank);
+    grams->c_nz[m] = ones_mat(rank, rank);
+    grams->c_z[m] = ones_mat(rank, rank);
 
-    grams->h_nz[m] = init_mat(rank, rank);
-    grams->h_z[m] = init_mat(rank, rank);
+    grams->h_nz[m] = ones_mat(rank, rank);
+    grams->h_z[m] = ones_mat(rank, rank);
 
-    grams->c[m] = init_mat(rank, rank);
-    grams->h[m] = init_mat(rank, rank);
+    grams->c[m] = ones_mat(rank, rank);
+    grams->h[m] = ones_mat(rank, rank);
 
-    grams->c_prev[m] = init_mat(rank, rank);    
+    grams->c_prev[m] = ones_mat(rank, rank);
   }
 
   return grams;
