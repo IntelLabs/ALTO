@@ -98,8 +98,6 @@ void idxsort_hist(
  }
 }
 
-
-
 RowSparseMatrix * rowsparse_mttkrp(
     SparseTensor * X, 
     RowSparseMatrix ** rsp_mats, 
@@ -200,4 +198,48 @@ RowSparseMatrix * rowsparse_mttkrp(
     } /* end omp parallel */
   return M;
 }
-    
+
+void rowsparse_mttkrp(
+    SparseTensor * X, 
+    RowSparseMatrix ** rsp_mats, 
+    IType mode,
+    IType streaming_mode,
+    std::vector<std::vector<int>>& ridx)
+{
+  IType nmodes = X->nmodes;
+  //IType* dims = X->dims;
+  IType nnz = X->nnz;
+  IType** cidx = X->cidx;
+  IType rank = rsp_mats[0]->J; // kind of hacky  
+
+  FType row[rank];
+
+  for(IType i = 0; i < nnz; i++) {
+    // initialize temporary accumulator
+    for(IType r = 0; r < rank; r++) {
+      row[r] = X->vals[i]; // Init row values
+    }
+
+    // calculate mttkrp for the current non-zero
+    for(IType m = 0; m < nmodes; m++) {
+      if(m != mode) {
+        IType row_id = cidx[m][i];
+        for(IType r = 0; r < rank; r++) {
+          row[r] *= rsp_mats[m]->mat->vals[ridx[m][row_id] * rank + r];
+        }
+      }
+    }
+
+    // update destination row
+    IType row_id = cidx[mode][i];
+    for(IType r = 0; r < rank; r++) {
+      if (mode == streaming_mode) {
+        rsp_mats[mode]->mat->vals[r] += row[r];
+      } else {
+        rsp_mats[mode]->mat->vals[ridx[mode][row_id] * rank + r] += row[r];
+      }
+
+    }
+  } // for each nonzero
+  return;
+}

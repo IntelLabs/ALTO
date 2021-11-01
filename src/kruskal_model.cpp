@@ -49,19 +49,19 @@ void ExportKruskalModel(KruskalModel *M, char *file_path)
 void PrintKruskalModel(KruskalModel *M)
 {
     for (int n = 0; n < M->mode; n++) {
-        printf("mode %d:\n", n);
+        fprintf(stderr, "mode %d:\n", n);
         for (IType j = 0; j < M->dims[n]; j++) {
             for (IType i = 0; i < M->rank; i++) {
-                printf("%g ", M->U[n][j * M->rank + i]);
+                fprintf(stderr, "%g ", M->U[n][j * M->rank + i]);
             }
-            printf("\n");
+            fprintf(stderr, "\n");
         }
     }
-    printf("lambda:");
+    fprintf(stderr, "lambda:");
     for (IType r = 0; r < M->rank; r++) {
-        printf("%g ", M->lambda[r]);
+        fprintf(stderr, "%g ", M->lambda[r]);
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 }
 
 

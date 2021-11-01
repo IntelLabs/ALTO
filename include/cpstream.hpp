@@ -68,5 +68,6 @@ void nonzero_slices(
     vector<int>& ridx,
     vector<size_t>& buckets);
 
+vector<size_t> zero_slices(const IType I, vector<size_t> &nz_rows);
 
 #endif // CPSTREAM_HPP_

@@ -107,7 +107,7 @@ int main(int argc, char** argv)
 	std::string binary_file;
 	double sparsity = 0.1;
 	// double epsilon = 1e-5;
-	double epsilon = 1e-4;
+	double epsilon = 1e-3;
 	int seed = time(NULL);
 	int save_to_file = 0;
     bool do_check = false;

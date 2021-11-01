@@ -137,6 +137,7 @@ void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode) {
     
     for (IType m = 0; m < nmodes; ++m) {
         if (m == mode) continue;
+        // TODO: do only upper triangular entries
         for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
             out_mat->vals[i] *= aTa[m]->vals[i];        
         }
@@ -262,7 +263,7 @@ FType mat_trace(Matrix * mat)
 {
     assert(mat->I == mat->J);
     FType tr = 0.0;
-    for (int i = 0; i < mat->I * mat->J; ++i) 
+    for (int i = 0; i < mat->I; ++i) 
     {
         tr += mat->vals[i * mat->I + i];
     }

@@ -93,7 +93,7 @@ RowSparseMatrix* rsp_mat_mul(RowSparseMatrix * A, Matrix * B)
 
 void PrintRowSparseMatrix(char *name, RowSparseMatrix * rsp_mat)
 {
-    size_t m = rsp_mat->I;
+    size_t m = rsp_mat->nnzr;
     size_t n = rsp_mat->J;
   
 	fprintf(stderr,"Row sparse matrix: %s:\n", name);
