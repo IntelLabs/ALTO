@@ -141,6 +141,9 @@ int main(int argc, char** argv)
 			if (model_string == "ALS" || model_string == "als") model = ALS;
 			else if (model_string == "CPSTREAM" || model_string == "cpstream") model = CPSTREAM;
 			else if (model_string == "CPSTREAM_ALTO" || model_string == "cpstream_alto") model = CPSTREAM_ALTO;
+			else if (model_string == "SPCPSTREAM" || model_string == "spcpstream") model = SPCPSTREAM;
+			else if (model_string == "SPCPSTREAM_ALTO" || model_string == "spcpstream_alto") model = SPCPSTREAM_ALTO;
+			
 			else fprintf(stderr, "Invalid -model: %s.\n", optarg);
 			break;
 		case 'r':
@@ -340,7 +343,7 @@ int main(int argc, char** argv)
 	}
 
 	// Streaming Tensor Decomposition
-	if (model == CPSTREAM || model == CPSTREAM_ALTO) {
+	if (model == CPSTREAM || model == CPSTREAM_ALTO || model == SPCPSTREAM || model == SPCPSTREAM_ALTO) {
 		if (streaming_mode == -1) {
 			fprintf(stderr, "Need to provide -streaming_mode: %d\n", streaming_mode);
 			exit(-1);
@@ -352,14 +355,15 @@ int main(int argc, char** argv)
 		// Instantiate global time stream matrix
 		// Later used for fit computation
 		BEGIN_TIMER(&ticks_start);
-		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false);
+		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false, (model == SPCPSTREAM || model == SPCPSTREAM_ALTO) ? true : false);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 
-		PRINT_TIMER("CP-STREAM", t_cpd);
+		char desc[128];
+		sprintf(desc, "%s (%s)", (model == CPSTREAM_ALTO || model == CPSTREAM) ? "CPSTREAM" : "spCPSTREAM", (model == CPSTREAM_ALTO || model == SPCPSTREAM_ALTO) ? "ALTO" : "non-ALTO");
+		PRINT_TIMER(desc, t_cpd);
 
 		// Get kruskal model for final factorization
-
 		return 0;
 
 		// Set up timers
@@ -413,7 +417,7 @@ int main(int argc, char** argv)
 				
 				// Override values for M->U[stream_mode] with last row of global_time matrix
 				M->U[streaming_mode] = &(global_time->vals[it*rank]);
-				
+
 				init_grams(&grams, M);
 			} else {
 				GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
@@ -464,54 +468,7 @@ int main(int argc, char** argv)
 			*/
 			
 			// If text_file_out is specified it is implied that we're using checkpoints
-			if (!text_file_out.empty()) {
 
-				// string of files
-				std::vector<std::string> files;
-				std::string path_to_checkpoints = "./checkpoints";
-
-				struct dirent * entry;
-				DIR * dir = opendir(path_to_checkpoints.c_str());
-
-				if (dir == NULL) {
-					// if directory doesnt exist
-					printf("Couldn't find directory at path: %s...\n", path_to_checkpoints.c_str());
-				}
-				else {
-					// If we found checkpoint directory
-					// Delete existing files
-					while((entry = readdir(dir)) != NULL) {
-						if (std::string(entry->d_name).find(text_file_out) != std::string::npos) {
-							files.push_back(std::string(entry->d_name));
-						}
-					}
-
-					for (std::string file : files) {
-						std::string full_path = path_to_checkpoints + "/" + file;
-						if(remove(full_path.c_str()) != 0) {
-							printf("Error deleting file: %s...\n", full_path.c_str());
-						}
-						else {
-							printf("Deleted: %s\n", full_path.c_str());
-						};
-					}
-				}
-
-				closedir(dir);
-
-				//Create checkpoints
-				char str[1000];
-				char prev_str[1000];
-
-				sprintf(str, "%s/%s_it_%d_nnz_%llu", path_to_checkpoints.c_str(), text_file_out.c_str(), it, t_batch->nnz);
-				ExportKruskalModel(M, str);
-
-				if (it > 1) {
-					sprintf(prev_str, "%s/%s_prev_it_%d_nnz_%llu", path_to_checkpoints.c_str(), text_file_out.c_str(), it-1, t_batch->nnz);
-					ExportKruskalModel(prev_M, prev_str);
-				}
-				// Inspect files
-			}
 
 			CopyKruskalModel(&prev_M, &M);
 

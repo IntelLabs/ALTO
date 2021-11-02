@@ -18,7 +18,8 @@ void cpstream(
     int streaming_mode,
     FType epsilon,
     IType seed,
-    bool use_alto) {
+    bool use_alto,
+    bool use_spcpstream) {
     // Define timers (common)
     double t_preprocess = 0.0;
     double tot_preprocess = 0.0;
@@ -40,69 +41,17 @@ void cpstream(
     Matrix * local_time = zero_mat(1, rank);
     StreamMatrix * global_time = new StreamMatrix(rank);
 
-#if 0
-    // Hypersparse ALS specific
-    SparseCPGrams * scpgrams = InitSparseCPGrams(nmodes, rank);
+    SparseCPGrams * scpgrams;
+    
+    if (use_spcpstream) {
+        // Hypersparse ALS specific
+        scpgrams = InitSparseCPGrams(nmodes, rank);
+    }
 
-    RowSparseMatrix ** A_nz_prev = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
-    RowSparseMatrix ** A_nz = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
-
-    Matrix ** Q_Phi_inv;
+    fprintf(stdout, "==== Executing %s (%s) ====\n", use_spcpstream ? "spCPSTREAM" : "CPSTREAM", use_alto ? "ALTO" : "non-ALTO");
 
     int it = 0;
     while (!sst.last_batch()) {
-        SparseTensor * t_batch = sst.next_batch();
-
-        if (it == 0) {
-            CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &M);
-            CreateKruskalModel(t_batch->nmodes, t_batch->dims, rank, &prev_M);
-            KruskalModelRandomInit(M, (unsigned int)seed);
-            KruskalModelZeroInit(prev_M);
-
-            // Override values for M->U[stream_mode] with last row of local_time matrix
-            M->U[streaming_mode] = local_time->vals;
-
-            // TODO: specify what "grams" exactly
-            init_grams(&grams, M);
-
-            for (int i = 0; i < rank * rank; ++i) {
-                grams[streaming_mode]->vals[i] = 0.0;
-            }
-        } else {
-            GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
-            GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
-
-            for (int j = 0; j < M->mode; ++j) {
-                if (j != streaming_mode) {
-                    update_gram(grams[j], M, j);
-                }
-            }
-        }
-
-        // TODO: We need to compute c, h
-        // before we start the iteration
-        // Do we need to pass in A_nz, A
-        spcpstream_iter(
-          t_batch,
-          M, prev_M, A_nz, A_nz_prev, grams, scpgrams,
-          max_iters, epsilon, streaming_mode, it, use_alto
-        );
-
-        // Copy M -> prev_M
-        CopyKruskalModel(&prev_M, &M);
-        DestroySparseTensor(t_batch);
-        ++it;
-    }
-    DeleteSparseCPGrams(scpgrams, X->nmodes);
-    return;
-
-#else
-
-   // Matrix ** c_nz_prev = (Matrix**)malloc()
-
-    int it = 0;
-    while(!sst.last_batch()) {
-        // Get next time batch
         SparseTensor * t_batch = sst.next_batch();
         PrintTensorInfo(rank, max_iters, t_batch);
 
@@ -132,33 +81,26 @@ void cpstream(
             }
         }
 
-        // TODO: Can convert it to ALTO outside of the iter function
-        // Since our plan is to remove COO mttkrp completely
+        if (use_spcpstream) {
+            spcpstream_iter(
+              t_batch, M, prev_M, grams, scpgrams,
+              max_iters, epsilon, streaming_mode, it, use_alto);
+        }
+        else {
+            // TODO: Can convert it to ALTO outside of the iter function
+            // Since our plan is to remove COO mttkrp completely
+            // Set s_t to the latest row of global time stream matrix
+            cpstream_iter(
+                t_batch, M, prev_M, grams,
+                max_iters, epsilon, streaming_mode, it, use_alto);
+        }
+        ++it; // increment of it has to precede global_time memcpy
 
-        // Set s_t to the latest row of global time stream matrix
-        cpstream_iter(
-            t_batch, M, prev_M, grams,
-            max_iters, epsilon, streaming_mode, it, use_alto);
-
-
-#if DEBUG == 1
-#endif
-        // spcpstream_iter(t_batch, M, prev_M, grams,
-        //     max_iters, epsilon, streaming_mode, it, use_alto);
-
-        // Save checkpoints
-
-        // Copy latest
+        // Copy M -> prev_M
         CopyKruskalModel(&prev_M, &M);
-
-        // Increase global time stream matrix
         DestroySparseTensor(t_batch);
-        ++it;
-        // printf("it: %d\n", it);
         global_time->grow_zero(it);
         memcpy(&(global_time->mat()->vals[rank * (it-1)]), M->U[streaming_mode], rank * sizeof(FType));
-
-        // Compute fit??
     }
 
     // Compute final fit
@@ -178,18 +120,25 @@ void cpstream(
         }
     }
     memcpy(factored->lambda, M->lambda, rank * sizeof(FType));
-
     PrintKruskalModelInfo(factored);
 
-#if DEBUG==1
+#if DEBUG == 1
     PrintKruskalModel(factored);
 #endif
+
+    // Clean up 
     DestroySparseTensor(X);
     destroy_grams(grams, M);
     DestroyKruskalModel(M);
     DestroyKruskalModel(prev_M);
+    DestroyKruskalModel(factored);
+    if (use_spcpstream) {
+        DeleteSparseCPGrams(scpgrams, nmodes);
+    }
+    delete global_time;
+
     return;
-#endif // spcp-stream dev mode
+
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -632,10 +581,10 @@ vector<size_t> zero_slices(const IType I, vector<size_t> &nz_rows)
 }
 
 void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
-    RowSparseMatrix ** A_nz, RowSparseMatrix ** A_nz_prev,
     Matrix** grams, SparseCPGrams* scpgrams, int max_iters, double epsilon,
     int streaming_mode, int iteration, bool use_alto)
 {
+
   /* Unpack stuff */
   // basic params
   int nmodes = X->nmodes;
@@ -673,9 +622,11 @@ void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
   Matrix * Q = init_mat(rank, rank);
   Matrix * Phi = init_mat(rank, rank);
   Matrix * old_gram = zero_mat(rank, rank);
-  
+
   // Needed to formulate full-sized factor matrix within the convergence loop
   // The zero rows still change inbetween iterations due to Q and Phi changing
+  RowSparseMatrix ** A_nz = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
+  RowSparseMatrix ** A_nz_prev = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
   RowSparseMatrix ** A_z_prev = (RowSparseMatrix**) AlignedMalloc(nmodes * sizeof(RowSparseMatrix*));
 
   // Q * Phi^-1 is needed to update A_z[m] after inner convergence

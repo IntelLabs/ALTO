@@ -53,7 +53,7 @@ typedef float FType;
 
 #define ROW 1
 
-typedef enum Model_ { ALS, CPSTREAM, CPSTREAM_ALTO } Model;
+typedef enum Model_ { ALS, CPSTREAM, CPSTREAM_ALTO, SPCPSTREAM, SPCPSTREAM_ALTO } Model;
 
 #define IDX_MAX UINT32_MAX // Max dimension a mode can have
 

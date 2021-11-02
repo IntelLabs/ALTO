@@ -41,14 +41,14 @@ void cpstream(
     int streaming_mode, 
     FType epsilon, 
     IType seed, 
-    bool use_alto);
+    bool use_alto,
+    bool use_spcpstream);
 
 void cpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
     Matrix** grams, int max_iters, double epsilon, 
     int streaming_mode, int iter, bool use_alto);
 
 void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M, 
-    RowSparseMatrix ** A_nz, RowSparseMatrix ** A_nz_prev,
     Matrix** grams, SparseCPGrams * scpgrams, int max_iters, double epsilon, 
     int streaming_mode, int iter, bool use_alto);
 
