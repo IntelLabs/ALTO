@@ -360,7 +360,6 @@ int main(int argc, char** argv)
 
 		// Get kruskal model for final factorization
 
-
 		return 0;
 
 		// Set up timers
@@ -414,6 +413,7 @@ int main(int argc, char** argv)
 				
 				// Override values for M->U[stream_mode] with last row of global_time matrix
 				M->U[streaming_mode] = &(global_time->vals[it*rank]);
+				
 				init_grams(&grams, M);
 			} else {
 				GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions

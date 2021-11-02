@@ -40,7 +40,7 @@ void cpstream(
     Matrix * local_time = zero_mat(1, rank);
     StreamMatrix * global_time = new StreamMatrix(rank);
 
-#if 1
+#if 0
     // Hypersparse ALS specific
     SparseCPGrams * scpgrams = InitSparseCPGrams(nmodes, rank);
 
@@ -142,7 +142,6 @@ void cpstream(
 
 
 #if DEBUG == 1
-        exit(1);
 #endif
         // spcpstream_iter(t_batch, M, prev_M, grams,
         //     max_iters, epsilon, streaming_mode, it, use_alto);
@@ -281,6 +280,7 @@ void cpstream_iter(
         for (int m = 0; m < nmodes; ++m) {
             if (m == streaming_mode) continue;
             KruskalModelNorm(M, m, MAT_NORM_2, lambda_sp);
+            update_gram(grams[m], M, m);
         }
         for (int r = 0; r < rank; ++r) {
             // Just normalize the columns and reset the lambda
@@ -346,11 +346,11 @@ void cpstream_iter(
     AGG_ELAPSED_TIME(ticks_start, ticks_end, &t_sm_backsolve);
 
 #if DEBUG == 1
-    printf("s_t\n");
+    fprintf(stderr, "s_t\n");
     for (int r = 0; r < rank; ++r) {
-      printf("%e\t", M->U[streaming_mode][r]);
+      fprintf(stderr, "%e\t", M->U[streaming_mode][r]);
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 #endif
     // PrintMatrix("gram mat for streaming mode", grams[streaming_mode]);
     copy_upper_tri(grams[streaming_mode]);
