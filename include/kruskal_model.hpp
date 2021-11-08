@@ -3,6 +3,7 @@
 
 
 #include "common.hpp"
+#include "matrix.hpp"
 
 
 typedef struct KruskalModel_
@@ -51,4 +52,6 @@ void PrintKruskalModel(KruskalModel *M);
 void RedistributeLambda (KruskalModel *M, int n);
 void PrintKruskalModelInfo(KruskalModel *M);
 double KruskalTensorFit();
+
+FType kruskal_norm(KruskalModel * M);
 #endif // KRUSKAL_MODEL_HPP_

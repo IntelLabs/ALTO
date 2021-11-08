@@ -31,3 +31,16 @@ void fill_rand(FType * vals, IType num_el) {
         vals[i] = rand_val();
     } 
 }
+
+IType argmin_elem(
+  IType const * const arr,
+  IType const N)
+{
+  IType mkr = 0;
+  for(IType i=1; i < N; ++i) {
+    if(arr[i] < arr[mkr]) {
+      mkr = i;
+    }
+  }
+  return mkr;
+}

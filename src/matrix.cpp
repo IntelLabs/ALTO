@@ -4,7 +4,7 @@ Matrix * init_mat(IType nrows, IType ncols) {
     Matrix * mat = (Matrix *) AlignedMalloc(sizeof(Matrix));
     mat->I = nrows;
     mat->J = ncols;
-    mat->vals = (FType *) AlignedMalloc(sizeof(FType*) * nrows * ncols);
+    mat->vals = (FType *) AlignedMalloc(sizeof(FType) * nrows * ncols);
     mat->rowmajor = 1;
 
     return mat;
@@ -46,6 +46,7 @@ void grow_mat(IType nrows, IType ncols) {
 
 void free_mat(Matrix * mat) {
     if (mat == NULL) return;
+    if (mat->vals == NULL) return;
     free(mat->vals);
     free(mat);
 };
@@ -268,4 +269,16 @@ FType mat_trace(Matrix * mat)
         tr += mat->vals[i * mat->I + i];
     }
     return tr;
+}
+
+Matrix * mat_fillptr(FType * vals, IType nrows, IType ncols) {
+    Matrix * mat = init_mat(nrows, ncols);
+    memcpy(mat->vals, vals, nrows * ncols * sizeof(FType));
+    return mat;
+}
+
+void mat_hydrate(Matrix * mat, FType * vals, IType nrows, IType ncols) {
+    mat->I = nrows;
+    mat->J = ncols;
+    mat->vals = vals;
 }

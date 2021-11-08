@@ -56,7 +56,6 @@ void AGG_ELAPSED_TIME(
   if (g_ticks_persecond == 0.0) {
     fprintf(stderr, "TSC timer has not been initialized.\n");
   } else {
-    // *t_elapsed = 0.0;
     *t_elapsed += ((end - start) / g_ticks_persecond);
   }
 #endif

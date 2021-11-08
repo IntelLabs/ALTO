@@ -70,4 +70,5 @@ void nonzero_slices(
 
 vector<size_t> zero_slices(const IType I, vector<size_t> &nz_rows);
 
+double cpd_error(SparseTensor * X, KruskalModel * M);
 #endif // CPSTREAM_HPP_

@@ -355,7 +355,7 @@ int main(int argc, char** argv)
 		// Instantiate global time stream matrix
 		// Later used for fit computation
 		BEGIN_TIMER(&ticks_start);
-		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, model == CPSTREAM_ALTO ? true : false, (model == SPCPSTREAM || model == SPCPSTREAM_ALTO) ? true : false);
+		cpstream(X, rank, max_iters, streaming_mode, epsilon, seed, (model == CPSTREAM_ALTO || model == SPCPSTREAM_ALTO) ? true : false, (model == SPCPSTREAM || model == SPCPSTREAM_ALTO) ? true : false);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
 

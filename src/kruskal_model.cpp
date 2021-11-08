@@ -526,3 +526,47 @@ double KruskalTensorFit()
 {
   return 0.0;
 }
+
+double kruskal_norm(KruskalModel * M) {
+  IType const rank = M->rank;
+  FType * const scratch = (FType *) malloc(rank * rank * sizeof(*scratch));
+
+  Matrix * ata = zero_mat(rank, rank);
+
+  /* initialize scratch space */
+  for(IType i=0; i < rank; ++i) {
+    for(IType j=i; j < rank; ++j) {
+      scratch[j + (i*rank)] = 1.;
+    }
+  }
+
+  /* scratch = hada(aTa) */
+  for(IType m=0; m < M->mode; ++m) {
+    Matrix * matptr = mat_fillptr(M->U[m], M->dims[m], rank);
+    // PrintMatrix("matptr", matptr);
+    mat_aTa(matptr, ata);
+
+    FType * atavals = ata->vals;
+    for(IType i=0; i < rank; ++i) {
+      for(IType j=i; j < rank; ++j) {
+        scratch[j + (i*rank)] *= atavals[j + (i*rank)];
+      }
+    }
+    free_mat(matptr);
+  }
+
+  /* now compute weights^T * aTa[MAX_NMODES] * weights */
+  FType norm = 0;
+  FType const * const column_weights = M->lambda;
+  for(IType i=0; i < rank; ++i) {
+    norm += scratch[i+(i*rank)] * column_weights[i] * column_weights[i];
+    for(IType j=i+1; j < rank; ++j) {
+      norm += scratch[j+(i*rank)] * column_weights[i] * column_weights[j] * 2;
+    }
+  }
+
+  free(scratch);
+  free_mat(ata);
+    
+  return fabs(norm);
+}

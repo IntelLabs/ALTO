@@ -24,7 +24,7 @@ RowSparseMatrix * rowsparse_mttkrp(
     std::vector<std::vector<int>>& ridx, 
     std::vector<size_t>& buckets);
 
-
+// For streaming mode only
 void rowsparse_mttkrp(
     SparseTensor * X, 
     RowSparseMatrix ** rsp_mats, 

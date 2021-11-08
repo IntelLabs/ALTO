@@ -4,21 +4,21 @@
 
 // Debugging purposes
 void print_sptensor(SparseTensor *sp, int nnz) {
-    printf("Sparse tensor has %d nnzs\n", sp->nnz);
+    fprintf(stderr, "Sparse tensor has %llu nnzs\n", sp->nnz);
     
     for (int n = 0; n < sp->nmodes; ++n) {
-        printf("Dim #%d: %d\n", n, sp->dims[n]);
+        fprintf(stderr, "Dim #%d: %llu\n", n, sp->dims[n]);
     }
     
     for (int n = 0; n < nnz; ++n) {
         // print dims
-        printf("(");
+        fprintf(stderr, "(");
         for (int i = 0; i < sp->nmodes; ++i) {
-            printf("%d ", sp->cidx[i][n]);
+            fprintf(stderr, "%llu ", sp->cidx[i][n]);
         }
-        printf(")");
+        fprintf(stderr, ")");
         
-        printf(" : %f\n", sp->vals[n]);
+        fprintf(stderr, " : %f\n", sp->vals[n]);
     } 
 }
 

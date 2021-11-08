@@ -2,12 +2,12 @@
 
 RowSparseMatrix * rspmat_init(IType nrows, IType ncols, IType nnzr)
 {
-    RowSparseMatrix * rsp_mat = (RowSparseMatrix*) malloc(sizeof(RowSparseMatrix));
+    RowSparseMatrix * rsp_mat = (RowSparseMatrix*) AlignedMalloc(sizeof(RowSparseMatrix));
     rsp_mat->I = nrows;
     rsp_mat->J = ncols;
     rsp_mat->nnzr = nnzr;
     rsp_mat->mat = init_mat(nnzr, ncols);
-    rsp_mat->rowind = (size_t *)malloc(nnzr * sizeof(size_t));
+    rsp_mat->rowind = (size_t *)AlignedMalloc(nnzr * sizeof(size_t));
     return rsp_mat;
 }
 
@@ -16,7 +16,8 @@ void rspmat_free(RowSparseMatrix* rsp_mat)
 {
     if (rsp_mat == NULL) return;
     if (rsp_mat->rowind == NULL) return;
-
+    if (rsp_mat->mat == NULL) return;
+    
     free_mat(rsp_mat->mat);
     free(rsp_mat->rowind);
     free(rsp_mat);

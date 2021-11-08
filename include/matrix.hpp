@@ -23,6 +23,8 @@ Matrix * init_mat(IType nrows, IType ncols);
 Matrix * rand_mat(IType nrows, IType ncols);
 Matrix * zero_mat(IType nrows, IType ncols);
 Matrix * ones_mat(IType nrows, IType ncols);
+Matrix * mat_fillptr(FType * vals, IType nrows, IType ncols);
+void mat_hydrate(Matrix * mat, FType * vals, IType nrows, IType ncols);
 
 void free_mat(Matrix * mat);
 
@@ -60,5 +62,6 @@ void pseudo_inverse(Matrix * A, Matrix * B);
 void mat_aTa(Matrix const * const A, Matrix * const ret);
  
 FType mat_trace(Matrix * mat);
+
 
 #endif // MATRIX_HPP_

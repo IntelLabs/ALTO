@@ -17,4 +17,8 @@ Permutation * perm_alloc(
 FType rand_val();
 void fill_rand(FType * vals, IType num_el);
 
+IType argmin_elem(
+  IType const * const arr,
+  IType const N);
+
 #endif // UTIL_HPP_
