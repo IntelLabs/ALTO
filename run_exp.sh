@@ -9,16 +9,15 @@ make
 #TENSORS=(lbnl nips uber chicago vast darpa enron nell-2 fb-m flickr-4d delicious-4d nell-1 amazon)
 #MODES = (...)
 
-#TENSORS=(uber chicago-crime-comm delicious-4d flickr-4d)
-TENSORS=(uber)
-STREAMING_MODE=(0)
-#STREAMING_MODE=(0 0 3 3)
+TENSORS=(uber chicago-crime-comm nips delicious-4d flickr-4d)
+STREAMING_MODE=(0 0 3 3 3)
+VARIATIONS=(spcpstream spcpstream_alto cpstream_alto cpstream)
+# VARIATIONS=(spcpstream_alto)
 
 for ((i=0; i < ${#TENSORS[@]}; ++i))
 do
-    # Add log that writes down start time echo "" >> test.log.txt
-#    ./cpd128 --rank 16 -m 100 -a ${STREAMING_MODE[i]} -l cpstream_alto -x 44 -i ~/hpctensor/${TENSORS[i]}.tns >> test.alto.${TENSORS[i]}.log.txt 2>&1
-#    ./cpd128 --rank 16 -m 100 -a ${STREAMING_MODE[i]} -l cpstream -x 44 -i ~/hpctensor/${TENSORS[i]}.tns >> test.non_alto.${TENSORS[i]}.log.txt 2>&1
-    ./cpd128 --rank 16 -m 100 -a ${STREAMING_MODE[i]} -l cpstream_alto -x 44 -i ~/hpctensor/${TENSORS[i]}.tns
-#    ./cpd128 --rank 16 -m 100 -a ${STREAMING_MODE[i]} -l cpstream -x 44 -i ~/hpctensor/${TENSORS[i]}.tns >> test.non_alto.${TENSORS[i]}.log.txt 2>&1
+  for ((v=0; v < ${#VARIATIONS[@]}; ++v))
+  do
+    ./cpd128 --rank 16 -m 300 -a ${STREAMING_MODE[i]} -e 1e-5 -l ${VARIATIONS[v]} -x 44 -i ~/hpctensor/${TENSORS[i]}.tns > ${TENSORS[i]}.${VARIATIONS[v]}.log.txt 2>&1 
+  done
 done
