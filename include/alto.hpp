@@ -8,12 +8,14 @@
 #include <math.h>
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
 #include <omp.h>
 
 #include "common.hpp"
 #include "bitops.hpp"
 #include "sptensor.hpp"
+#include "rowsparse_matrix.hpp"
 
 #ifdef OPT_ALTO
 typedef unsigned long  LPType;     // Linearized partition id type
@@ -74,6 +76,17 @@ void mttkrp_alto(int target_mode, FType **factors, IType rank, AltoTensor<LIT> *
 
 template <typename LIT>
 static inline void mttkrp_alto_par(int target_mode, FType **factors, IType rank, AltoTensor<LIT> *at, omp_lock_t* wlocks, FType **ofibs);
+
+template <typename LIT>
+static inline void rowsparse_mttkrp_alto_par(int target_mode, RowSparseMatrix **factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT> *at, omp_lock_t* wlocks, FType **ofibs);
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix **factors, std::vector<std::vector<int>>& ridx, const AltoTensor<LIT>* const at, ModeT nmode = ModeT(), RankT rank = RankT());
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+rowsparse_mttkrp_alto_da_mem_pull(int const target_mode, RowSparseMatrix **factors, std::vector<std::vector<int>>& ridx, const AltoTensor<LIT>* const at, FType** ofibs, ModeT nmode = ModeT(), RankT rank = RankT());
 
 //#define TEST_ALTO
 //#define ALTO_MEM_TRACE
@@ -316,8 +329,9 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
 #endif
                 assert(_ofibs[p]);
             }
-            else
+            else {
                 _ofibs[p] = NULL;
+            }
             //printf("p%d: storage=%f MB\n", p, ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0));
             total_storage += ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0);
         } // nprtn
@@ -1103,8 +1117,6 @@ mttkrp_alto_lock_cr(int const target_mode, FType** factors, IType const rank, co
             ALTO_MASKS[n] = at->mode_masks[n];
         }
 
-        //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-        //assert(row);
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
@@ -1173,8 +1185,7 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             for (int n = 0; n < nmode; ++n) {
                 ALTO_MASKS[n] = at->mode_masks[n];
             }
-            //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-            //assert(row);
+
             FType row[rank]; //Allocate an auto array of variable size.
 
             FType* const out = ofibs[p];
@@ -1245,6 +1256,318 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             } //prtns
         } //ofibs
     } // omp parallel
+}
+
+template <typename LIT, typename MT, IType... Ranks>
+struct rowsparse_mttkrp_alto_rank_specializer;
+
+template <typename LIT, typename MT>
+struct rowsparse_mttkrp_alto_rank_specializer<LIT, MT, 0>
+{
+    void
+    operator()(int target_mode, IType fib_reuse, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs, MT nmodes)
+    {
+        if (fib_reuse <= MIN_FIBER_REUSE) {
+            if (at->cr_masks[target_mode]) {
+                return rowsparse_mttkrp_alto_atomic_cr(target_mode, factors, ridx, at, nmodes, rank);
+            }
+            return rowsparse_mttkrp_alto_atomic(target_mode, factors, ridx, at, nmodes, rank);
+        }
+        else {
+            return rowsparse_mttkrp_alto_da_mem_pull(target_mode, factors, ridx, at, ofibs, nmodes, rank);   
+        }
+    }
+};
+
+template <typename LIT, typename MT, IType Head, IType... Tail>
+struct rowsparse_mttkrp_alto_rank_specializer<LIT, MT, 0, Head, Tail...>
+{
+    void
+    operator()(int target_mode, IType fib_reuse, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs, MT nmodes)
+    {
+        if (rank == Head) {
+            using const_rank = std::integral_constant<IType, Head>;
+            if (fib_reuse <= MIN_FIBER_REUSE) {
+                if (at->cr_masks[target_mode]) {
+                    return rowsparse_mttkrp_alto_atomic_cr(target_mode, factors, ridx, at, nmodes, const_rank());
+                }
+                return rowsparse_mttkrp_alto_atomic(target_mode, factors, ridx, at, nmodes, const_rank());
+            }
+            else {
+                return rowsparse_mttkrp_alto_da_mem_pull(target_mode, factors, ridx, at, ofibs, nmodes, const_rank());
+
+            }
+        }
+        else
+            return rowsparse_mttkrp_alto_rank_specializer<LIT, MT, 0, Tail...>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs, nmodes);
+    }
+};
+
+template <typename LIT, int... Modes>
+struct rowsparse_mttkrp_alto_mode_specializer;
+
+template <typename LIT>
+struct rowsparse_mttkrp_alto_mode_specializer<LIT, 0>
+{
+    void
+    operator()(int target_mode, IType fib_reuse, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs)
+    { rowsparse_mttkrp_alto_rank_specializer<LIT, int, ALTO_RANKS_SPECIALIZED>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs, at->nmode); }
+};
+
+template <typename LIT, int Head, int... Tail>
+struct rowsparse_mttkrp_alto_mode_specializer<LIT, 0, Head, Tail...>
+{
+    void
+    operator()(int target_mode, IType fib_reuse, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs)
+    {
+        if (at->nmode == Head) {
+            using const_mode = std::integral_constant<int, Head>;
+            rowsparse_mttkrp_alto_rank_specializer<LIT, const_mode, ALTO_RANKS_SPECIALIZED>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs, const_mode());
+        }
+        else {
+            rowsparse_mttkrp_alto_mode_specializer<LIT, 0, Tail...>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs);
+        }
+    }
+};
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+rowsparse_mttkrp_alto_atomic(int const target_mode, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, const AltoTensor<LIT>* const at, ModeT nmode, RankT rank)
+{
+    int const nprtn = at->nprtn;
+    assert(at->nmode == nmode);
+    #pragma omp parallel for schedule(static,1) proc_bind(close)
+    for (int p = 0; p < nprtn; ++p) {
+        //local buffer
+        LIT ALTO_MASKS[MAX_NUM_MODES];
+        for (int n = 0; n < nmode; ++n) {
+            ALTO_MASKS[n] = at->mode_masks[n];
+        }
+        
+        FType row[rank]; //Allocate an auto array of variable size.
+
+        LIT* const idx = at->idx;
+        FType* const vals = at->vals;
+        IType const nnz_s = at->prtn_ptr[p];
+        IType const nnz_e = at->prtn_ptr[p + 1];
+
+        for (IType i = nnz_s; i < nnz_e; ++i) {
+            FType const val = vals[i];
+            LIT const alto_idx = idx[i];
+
+            #pragma omp simd
+            for (IType r = 0; r < rank; ++r) {
+                row[r] = val;
+            }
+
+            for (int m = 0; m < nmode; ++m) {
+                if (m != target_mode) { //input fibers
+#ifndef ALT_PEXT
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
+#else
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
+#endif
+                    #pragma omp simd
+                    for (IType r = 0; r < rank; r++) {
+                        row[r] *= factors[m]->mat->vals[ridx[m][row_id] * rank + r];
+                    }
+                }
+            }
+
+            //Output fibers
+#ifndef ALT_PEXT
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode]);
+#else
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]);
+#endif
+            for (IType r = 0; r < rank; ++r) {
+                #pragma omp atomic update
+                factors[target_mode]->mat->vals[ridx[target_mode][row_id] * rank + r] += row[r];
+            }
+        } //nnzs
+    } //prtns
+}
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, const AltoTensor<LIT>* const at, ModeT nmode, RankT rank)
+{
+    int const nprtn = at->nprtn;
+    assert(at->nmode == nmode);
+    LIT const cr_mask = at->cr_masks[target_mode];
+
+    #pragma omp parallel for schedule(static,1) proc_bind(close)
+    for (int p = 0; p < nprtn; ++p) {
+        //local buffer
+        LIT ALTO_MASKS[MAX_NUM_MODES];
+        for (int n = 0; n < nmode; ++n) {
+            ALTO_MASKS[n] = at->mode_masks[n];
+        }
+
+        FType row[rank]; //Allocate an auto array of variable size.
+
+        LIT* const idx = at->idx;
+        FType* const vals = at->vals;
+        IType const nnz_s = at->prtn_ptr[p];
+        IType const nnz_e = at->prtn_ptr[p + 1];
+
+        for (IType i = nnz_s; i < nnz_e; ++i) {
+            FType const val = vals[i];
+            LIT const alto_idx = idx[i];
+
+            #pragma omp simd
+            for (IType r = 0; r < rank; ++r) {
+                row[r] = val;
+            }
+
+            for (int m = 0; m < nmode; ++m) {
+                if (m != target_mode) { //input fibers
+
+#ifndef ALT_PEXT
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
+#else
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
+#endif
+
+                    #pragma omp simd
+                    for (IType r = 0; r < rank; r++) {
+                        IType const _row_id = ridx[m][row_id];
+                        row[r] *= factors[m]->mat->vals[_row_id * rank + r];
+                    }
+                }
+            }
+
+            //Output fibers
+#ifndef ALT_PEXT
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode]);
+#else
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]);
+#endif
+            
+            if (alto_idx & cr_mask) {
+                for (IType r = 0; r < rank; ++r) {
+                    #pragma omp atomic update
+                    factors[target_mode]->mat->vals[ridx[target_mode][row_id] * rank + r] += row[r];
+                }
+            }
+            else {
+                #pragma omp simd
+                for (IType r = 0; r < rank; ++r) {
+                    factors[target_mode]->mat->vals[ridx[target_mode][row_id] * rank + r] += row[r];
+                }
+            }
+        } //nnzs
+    } //prtns
+}
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+rowsparse_mttkrp_alto_da_mem_pull(int const target_mode, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, const AltoTensor<LIT>* const at, FType** ofibs, ModeT nmode, RankT rank)
+{
+    int const nprtn = at->nprtn;
+    assert(nmode == at->nmode);
+    // IType const num_fibs = at->dims[target_mode];
+    IType const num_fibs = factors[target_mode]->nnzr;
+
+    #pragma omp parallel proc_bind(close)
+    {
+        #pragma omp for schedule(static, 1)
+        for (int p = 0; p < nprtn; ++p) {
+            //local buffer
+            LIT ALTO_MASKS[MAX_NUM_MODES];
+
+            #pragma omp simd
+            for (int n = 0; n < nmode; ++n) {
+                ALTO_MASKS[n] = at->mode_masks[n];
+            }
+            //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
+            //assert(row);
+            FType row[rank]; //Allocate an auto array of variable size.
+
+            FType* const out = ofibs[p];
+            Interval const intvl = at->prtn_intervals[p * nmode + target_mode];
+            IType const offset = intvl.start;
+            IType const stop = intvl.stop;
+            memset(out, 0, (stop - offset + 1) * rank * sizeof(FType));
+
+            LIT* const idx = at->idx;
+            FType* const vals = at->vals;
+            IType const nnz_s = at->prtn_ptr[p];
+            IType const nnz_e = at->prtn_ptr[p + 1];
+    // fprintf(stderr, "1mem pull: %d\n", target_mode);
+
+            for (IType i = nnz_s; i < nnz_e; ++i) {
+                FType const val = vals[i];
+                LIT const alto_idx = idx[i];
+
+                #pragma omp simd
+                for (IType r = 0; r < rank; ++r) {
+                    row[r] = val;
+                }
+
+                for (int m = 0; m < nmode; ++m) {
+                    if (m != target_mode) { //input fibers
+#ifndef ALT_PEXT
+                        IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
+#else
+                        IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
+#endif
+                        #pragma omp simd 
+                        for (IType r = 0; r < rank; ++r) {
+                            row[r] *= factors[m]->mat->vals[ridx[m][row_id] * rank + r];
+                        }
+                    }
+                }
+
+                //Output fibers
+#ifndef ALT_PEXT
+                IType row_id = pext(alto_idx, ALTO_MASKS[target_mode]) - offset;
+#else
+                IType row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]) - offset;
+#endif
+                row_id *= rank;
+
+                #pragma omp simd
+                for (IType r = 0; r < rank; ++r) {
+                    out[row_id + r] += row[r];
+                }
+            } //nnzs
+        } //prtns
+        //pull-based accumulation
+        #pragma omp for schedule(static)
+        for (IType i = 0; i < num_fibs; ++i) {
+            size_t * rowind = factors[target_mode]->rowind;
+            for (int p = 0; p < nprtn; p++)
+            {
+                Interval const intvl = at->prtn_intervals[p * nmode + target_mode];                
+                IType const offset = intvl.start;
+                IType const stop = intvl.stop;
+
+                if ((rowind[i] >= offset) && (rowind[i] <= stop)) {
+                    FType* const out = ofibs[p];
+                    IType const j = rowind[i] - offset;
+                    if ( ridx[target_mode][rowind[i]] > factors[target_mode]->nnzr || ridx[target_mode][rowind[i]] < 0 /* out of range*/) {
+                        fprintf(stderr, "tried to update row: %d, valid range: %llu, matrix size: %llu, i: %llu\n", ridx[target_mode][rowind[i]], factors[target_mode]->nnzr, factors[target_mode]->I, rowind[i]);
+                    } else {
+                        #pragma omp simd
+                        for (IType r = 0; r < rank; r++) {
+                            factors[target_mode]->mat->vals[ridx[target_mode][rowind[i]] * rank + r] += out[j * rank + r];
+                        }
+
+                    }
+                }
+            } //prtnfs
+        } //ofibs
+    } // omp parallel
+}
+
+
+template <typename LIT>
+static inline void
+rowsparse_mttkrp_alto_par(int target_mode, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs)
+{
+    IType fib_reuse = at->nnz / at->dims[target_mode];
+    return rowsparse_mttkrp_alto_mode_specializer<LIT, ALTO_MODES_SPECIALIZED>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs);
 }
 
 #endif

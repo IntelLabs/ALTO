@@ -39,18 +39,35 @@ typedef double FType;
 #define POTRF  dpotrf_
 #define POTRS  dpotrs_
 #define GELSY  dgelsy_
+#define GELSS  dgelss_
 #define SYRK   cblas_dsyrk
 #else
 typedef float FType;
 #define POTRF  spotrf
 #define POTRS  spotrs
-#define GELSY  sgelsy
+#define GELSY  sgelss
 #define SYRK   cblas_ssyrk
 #endif
 
 #define CACHELINE      64
 
 #define ROW 1
+
+typedef enum Model_ { ALS, CPSTREAM, CPSTREAM_ALTO, SPCPSTREAM, SPCPSTREAM_ALTO } Model;
+
+#define IDX_MAX UINT32_MAX // Max dimension a mode can have
+
+#define SS_MIN(x,y) ((x) < (y) ? (x) : (y))
+#define SS_MAX(x,y) ((x) > (y) ? (x) : (y))
+
+#if ALTO_MASK_LENGTH == 64
+    typedef unsigned long long LIType;
+#elif ALTO_MASK_LENGTH == 128
+    typedef unsigned __int128 LIType;
+#else
+    #pragma message("!WARNING! ALTO_MASK_LENGTH invalid. Using default 64-bit.")
+    typedef unsigned long long LIType;
+#endif
 
 inline uint64_t ReadTSC(void)
 {
@@ -172,7 +189,7 @@ void ParMemset(void * dst, int val, size_t bytes)
 }
 
 #ifndef TIME
-#define TIME 0
+#define TIME 1
 #endif
 static inline void BEGIN_TIMER(
   uint64_t* ticks
@@ -198,6 +215,12 @@ void ELAPSED_TIME(
   double* t_elapsed
 );
 
+void AGG_ELAPSED_TIME(
+  uint64_t start,
+  uint64_t end,
+  double* t_elapsed
+);
+
 void PRINT_TIMER(
   const char* message,
   double t
@@ -209,7 +232,4 @@ void InitTSC(void);
 
 double ElapsedTime(uint64_t ticks);
 
-void PrintFPMatrix(char *name, FType * a, size_t m, size_t n);
-
-void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n);
 #endif // COMMON_HPP_

@@ -70,7 +70,6 @@ void ExportSparseTensor(
   fclose(fp);
 }
 
-
 void read_tns_dims(
   FILE* fin,
   IType* num_modes,
@@ -96,7 +95,6 @@ void read_tns_dims(
   }
   --nmodes;
   *num_modes = nmodes;
-
 
   // Calculate the tensor dimensions
   assert(nmodes <= MAX_NUM_MODES);
@@ -129,7 +127,6 @@ void read_tns_dims(
   free(line);
 }
 
-
 void read_tns_data(
   FILE* fin,
   SparseTensor* tensor,
@@ -156,8 +153,6 @@ void read_tns_data(
 
   free(line);
 }
-
-
 
 void ImportSparseTensor(
   const char* file_path,
@@ -293,4 +288,103 @@ void CreateSparseTensor(
   memcpy(X->vals, vals, sizeof(FType) * nnz);
 
   *X_ = X;
+}
+
+SparseTensor * AllocSparseTensor(const int nnz, const int nmodes) {
+  SparseTensor * sp = (SparseTensor *) malloc(sizeof(SparseTensor));
+    sp->nnz = nnz;
+    sp->nmodes = nmodes;
+
+    sp->vals = (FType*)malloc(nnz * sizeof(FType));
+    sp->dims = (IType*)malloc(nmodes * sizeof(IType));
+    sp->cidx = (IType**)malloc(nmodes * sizeof(IType*));
+    for (int m = 0; m < nmodes; ++m) {
+        sp->cidx[m] = (IType*)malloc(nnz * sizeof(IType));
+    }
+    return sp;
+}
+
+void sptensor_write(
+  SparseTensor const * const sptensor,
+  char const * const fname) {
+  
+  FILE * fout;
+  if (fname == NULL || strcmp(fname, "-") == 0) {
+    fout = stdout;
+  } else {
+    if ((fout = fopen(fname, "w")) == NULL) {
+      fprintf(stderr, "SPLATT ERROR: failed to open '%s'\n.", fname);
+      return;
+    }
+  }
+  sptensor_write_file(sptensor, fout);
+  if (fout != stdout) {
+    fclose(fout);
+  }
+}
+
+void sptensor_write_file(
+  SparseTensor const * const sptensor,
+  FILE * fout)
+{
+  /* write sparse tensor in COO format*/
+  for (IType n=0; n<sptensor->nnz; ++n) {
+    for (IType m=0; m < sptensor->nmodes; ++m) {
+      fprintf(fout, "%llu\t", sptensor->cidx[m][n]);
+    }
+    // Print values
+    fprintf(fout, "%f\n", sptensor->vals[n]);
+  }
+}
+
+void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
+{
+	IType* dims = X->dims;
+	IType nnz = X->nnz;
+	int nmodes = X->nmodes;
+
+	IType tmp = 1;
+	for (int i = 0; i < nmodes; i++) {
+		tmp *= dims[i];
+	}
+	double sparsity = ((double)nnz) / tmp;
+	fprintf(stdout, "# Modes         = %u\n", nmodes);
+	fprintf(stdout, "Rank            = %llu\n", rank);
+	fprintf(stdout, "Sparsity        = %f\n", sparsity);
+	fprintf(stdout, "Max iters       = %d\n", max_iters);
+	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	for (int i = 1; i < nmodes; i++) {
+		fprintf(stdout, " X %llu", dims[i]);
+	}
+	fprintf(stdout, "]\n");
+	fprintf(stdout, "NNZ             = %llu\n", nnz);
+}
+
+void PrintSparseTensor(SparseTensor* X)
+{
+	IType* dims = X->dims;
+	IType nnz = X->nnz;
+	int nmodes = X->nmodes;
+
+	IType tmp = 1;
+	for (int i = 0; i < nmodes; i++) {
+		tmp *= dims[i];
+	}
+	double sparsity = ((double)nnz) / tmp;
+	fprintf(stdout, "# Modes         = %u\n", nmodes);
+	fprintf(stdout, "Sparsity        = %f\n", sparsity);
+	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	for (int i = 1; i < nmodes; i++) {
+		fprintf(stdout, " X %llu", dims[i]);
+	}
+	fprintf(stdout, "]\n");
+	fprintf(stdout, "NNZ             = %llu\n", nnz);
+
+  for (IType n = 0; n < X->nnz; ++n) {
+    for (int m = 0; m < nmodes; ++m) {
+      fprintf(stdout, "%llu", X->cidx[m][n]);
+      if (m != nmodes - 1) fprintf(stdout, "\t");
+    }
+    fprintf(stdout, "\n");
+  }
 }

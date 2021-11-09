@@ -5,3 +5,11 @@ cpd64
 build*
 .vscode/
 .DS_Store
+
+*.out
+*.srun
+*.log
+*.err
+*.log.txt
+*.tsv
+*.csv

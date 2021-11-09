@@ -46,6 +46,21 @@ void ELAPSED_TIME(
 #endif
 }
 
+void AGG_ELAPSED_TIME(
+  uint64_t start,
+  uint64_t end,
+  double* t_elapsed
+)
+{
+#if TIME
+  if (g_ticks_persecond == 0.0) {
+    fprintf(stderr, "TSC timer has not been initialized.\n");
+  } else {
+    *t_elapsed += ((end - start) / g_ticks_persecond);
+  }
+#endif
+}
+
 void PRINT_TIMER(
   const char* message,
   double t
@@ -54,29 +69,4 @@ void PRINT_TIMER(
 #if TIME
   printf("%s: %f s\n", message, t);
 #endif
-}
-
-void PrintFPMatrix(char *name, FType * a, size_t m, size_t n)
-{
-	fprintf(stderr,"%s:\n", name);
-    for (size_t i = 0; i < m; i++) {
-        for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%.6g ", a[i * n + j]);
-        }
-        fprintf(stderr,"\n");
-    }
-    fprintf(stderr,"\n");
-}
-
-
-void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n)
-{
-	fprintf(stderr,"%s:\n", name);
-    for (size_t i = 0; i < m; i++) {
-        for (size_t j = 0; j < n; j++) {
-        	fprintf(stderr,"%zu ", a[i * n + j]);
-        }
-        fprintf(stderr,"\n");
-    }
-    fprintf(stderr,"\n");
 }
