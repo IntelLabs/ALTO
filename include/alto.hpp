@@ -1117,8 +1117,6 @@ mttkrp_alto_lock_cr(int const target_mode, FType** factors, IType const rank, co
             ALTO_MASKS[n] = at->mode_masks[n];
         }
 
-        //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-        //assert(row);
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
@@ -1187,8 +1185,7 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             for (int n = 0; n < nmode; ++n) {
                 ALTO_MASKS[n] = at->mode_masks[n];
             }
-            //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-            //assert(row);
+
             FType row[rank]; //Allocate an auto array of variable size.
 
             FType* const out = ofibs[p];
@@ -1272,14 +1269,11 @@ struct rowsparse_mttkrp_alto_rank_specializer<LIT, MT, 0>
     {
         if (fib_reuse <= MIN_FIBER_REUSE) {
             if (at->cr_masks[target_mode]) {
-                // fprintf(stderr, "atomic_cr\n");
                 return rowsparse_mttkrp_alto_atomic_cr(target_mode, factors, ridx, at, nmodes, rank);
             }
-            // fprintf(stderr, "atomic\n");
             return rowsparse_mttkrp_alto_atomic(target_mode, factors, ridx, at, nmodes, rank);
         }
         else {
-            // fprintf(stderr, "mem pull\n");
             return rowsparse_mttkrp_alto_da_mem_pull(target_mode, factors, ridx, at, ofibs, nmodes, rank);   
         }
     }
@@ -1295,14 +1289,11 @@ struct rowsparse_mttkrp_alto_rank_specializer<LIT, MT, 0, Head, Tail...>
             using const_rank = std::integral_constant<IType, Head>;
             if (fib_reuse <= MIN_FIBER_REUSE) {
                 if (at->cr_masks[target_mode]) {
-                    // fprintf(stderr, "atomic_cr\n");
                     return rowsparse_mttkrp_alto_atomic_cr(target_mode, factors, ridx, at, nmodes, const_rank());
                 }
-                // fprintf(stderr, "atomic\n");
                 return rowsparse_mttkrp_alto_atomic(target_mode, factors, ridx, at, nmodes, const_rank());
             }
             else {
-                // fprintf(stderr, "mem pull\n");
                 return rowsparse_mttkrp_alto_da_mem_pull(target_mode, factors, ridx, at, ofibs, nmodes, const_rank());
 
             }
@@ -1330,12 +1321,10 @@ struct rowsparse_mttkrp_alto_mode_specializer<LIT, 0, Head, Tail...>
     operator()(int target_mode, IType fib_reuse, RowSparseMatrix** factors, std::vector<std::vector<int>>& ridx, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs)
     {
         if (at->nmode == Head) {
-            // fprintf(stderr, "call: rank_specializer\n");
             using const_mode = std::integral_constant<int, Head>;
             rowsparse_mttkrp_alto_rank_specializer<LIT, const_mode, ALTO_RANKS_SPECIALIZED>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs, const_mode());
         }
         else {
-            // fprintf(stderr, "call: mode_specializer\n");
             rowsparse_mttkrp_alto_mode_specializer<LIT, 0, Tail...>()(target_mode, fib_reuse, factors, ridx, rank, at, wlocks, ofibs);
         }
     }
@@ -1355,8 +1344,6 @@ rowsparse_mttkrp_alto_atomic(int const target_mode, RowSparseMatrix** factors, s
             ALTO_MASKS[n] = at->mode_masks[n];
         }
         
-        //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-        //assert(row);
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
@@ -1417,8 +1404,6 @@ rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix** factors
             ALTO_MASKS[n] = at->mode_masks[n];
         }
 
-        //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
-        //assert(row);
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
@@ -1435,46 +1420,22 @@ rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix** factors
                 row[r] = val;
             }
 
-            // fprintf(stderr, "2 atomic cr: %d\n", target_mode);
             for (int m = 0; m < nmode; ++m) {
-                // for (int i = 0; i < ridx[m].size(); ++i) {
-                //     printf("%d,", ridx[m][i]);
-                // }
-                // printf("\n");
-
-
                 if (m != target_mode) { //input fibers
-                    // printf("===============\n");
 
 #ifndef ALT_PEXT
                     IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
 #else
                     IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
 #endif
-                    // PrintRowSparseMatrix("A_nz", factors[m]);
-                    // // printf("=======%llu========\n", m);
-                    // fprintf(stderr, "mode: %d nnz has idx: %llu, rsp mat has it stored in %d\n", m, row_id, ridx[m][row_id]);
-                    
-                    // for (int k = 0; k < factors[m]->I; ++k) {
-                    //     fprintf(stderr, "%d ", ridx[m][k]);
-                    // };
-                    // fprintf(stderr, "\n");
-                    
-                    // for (int z = 0; z < rank; ++z) {
-                    //     fprintf(stderr, "%f,", factors[m]->mat->vals[ridx[m][row_id] * rank + z]);
-                    // }
-                    // fprintf(stderr, "\n");
 
                     #pragma omp simd
                     for (IType r = 0; r < rank; r++) {
                         IType const _row_id = ridx[m][row_id];
                         row[r] *= factors[m]->mat->vals[_row_id * rank + r];
                     }
-                    // fprintf(stderr, "mode: %d nnz has idx: %llu, rsp mat has it stored in %d\n", m, row_id, ridx[m][row_id]);
                 }
             }
-
-    // fprintf(stderr, "computing row is complete for mode: %d\n", target_mode);
 
             //Output fibers
 #ifndef ALT_PEXT
@@ -1482,7 +1443,6 @@ rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix** factors
 #else
             IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]);
 #endif
-            // printf("updating mode: %d, should update %d, updating: %d\n", target_mode, row_id, ridx[target_mode][row_id]);
             
             if (alto_idx & cr_mask) {
                 for (IType r = 0; r < rank; ++r) {
@@ -1496,7 +1456,6 @@ rowsparse_mttkrp_alto_atomic_cr(int const target_mode, RowSparseMatrix** factors
                     factors[target_mode]->mat->vals[ridx[target_mode][row_id] * rank + r] += row[r];
                 }
             }
-                // fprintf(stderr, "2 end nnz atomic cr: %d\n", target_mode);
         } //nnzs
     } //prtns
 }
@@ -1548,22 +1507,17 @@ rowsparse_mttkrp_alto_da_mem_pull(int const target_mode, RowSparseMatrix** facto
 
                 for (int m = 0; m < nmode; ++m) {
                     if (m != target_mode) { //input fibers
-                        // printf("===============\n");
 #ifndef ALT_PEXT
                         IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
 #else
                         IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
 #endif
-                        // printf("=======%llu========\n", m);
-                        // printf("mode: %d nnz has idx: %llu, rsp mat has it stored in %d\n", m, row_id, ridx[m][row_id]);
                         #pragma omp simd 
                         for (IType r = 0; r < rank; ++r) {
                             row[r] *= factors[m]->mat->vals[ridx[m][row_id] * rank + r];
                         }
-                        // printf("mode: %d nnz has idx: %llu, rsp mat has it stored in %d\n", m, row_id, ridx[m][row_id]);
                     }
                 }
-    // fprintf(stderr, "2mem pull: %d\n", target_mode);
 
                 //Output fibers
 #ifndef ALT_PEXT
@@ -1572,7 +1526,6 @@ rowsparse_mttkrp_alto_da_mem_pull(int const target_mode, RowSparseMatrix** facto
                 IType row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]) - offset;
 #endif
                 row_id *= rank;
-    // fprintf(stderr, "3mem pull: %d\n", target_mode);
 
                 #pragma omp simd
                 for (IType r = 0; r < rank; ++r) {

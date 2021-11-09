@@ -382,10 +382,11 @@ void cpstream_iter(
                 }
                 // Check previous factor matrix has same dimension size as current factor matrix
                 // this should be handled when new tensor is being fed in..
-                assert(prev_M->dims[m] == M->dims[m]);
+                // assert(prev_M->dims[m] == M->dims[m]);
                 matmul(prev_M->U[m], true, M->U[m], false, 
                   historical->vals, prev_M->dims[m], rank, M->dims[m], rank, 0.0);
 
+                #pragma omp parallel for schedule(static)
                 for (int x = 0; x < rank * rank; ++x) {
                     ata_buf->vals[x] *= historical->vals[x];
                 }
@@ -478,10 +479,13 @@ void cpstream_iter(
     }
     free(writelocks);
 
-    fprintf(stderr, "timing CPSTREAM-ITER (#it, #nnz, #inner_it, alto, mttkrp_sm, bs_sm, mem set, mttkrp_om, hist, bs_om, upd_gram, conv_check\n");
+    fprintf(stderr, "timing CPSTREAM-ITER\n");
+    fprintf(stderr, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmem set\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\n");
     fprintf(stderr, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
-        iteration+1, X->nnz, num_inner_iter, 
-        t_alto, t_mttkrp_sm, t_bs_sm, t_memset, t_mttkrp_om, t_add_historical, t_bs_om, t_gram_mat, t_conv_check);
+        iteration+1, X->nnz, num_inner_iter+1, 
+        t_alto, t_mttkrp_sm, t_bs_sm, 
+        t_memset, t_mttkrp_om, t_add_historical, 
+        t_bs_om, t_gram_mat, t_conv_check);
 }
 
 // add reverse idx
@@ -1057,10 +1061,14 @@ void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
   }
   /* End: Cleaning up */
 
-  fprintf(stderr, "timing SPCPSTREAM-ITER (#it, #nnz, #inner_it, alto, mttkrp_sm, bs_sm, memset, mttkrp_om, hist, bs_om, upd_gram, conv_check, row op, mat conv, upd fm\n");
+  fprintf(stderr, "timing SPCPSTREAM-ITER\n");
+  fprintf(stderr, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmemset\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\trow op\tmat conv\tupd fm\n");
   fprintf(stderr, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
-      iteration+1, X->nnz, num_inner_iter, 
-      t_alto, t_mttkrp_sm, t_bs_sm, t_memset, t_mttkrp_om, t_add_historical, t_bs_om, t_gram_mat, t_conv_check, t_row_op, t_mat_conversion, t_upd_fm);
+      iteration+1, X->nnz, num_inner_iter+1, 
+      t_alto, t_mttkrp_sm, t_bs_sm, 
+      t_memset, t_mttkrp_om, t_add_historical, 
+      t_bs_om, t_gram_mat, t_conv_check, 
+      t_row_op, t_mat_conversion, t_upd_fm);
   return;
 };
 
