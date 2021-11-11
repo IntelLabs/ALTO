@@ -189,13 +189,16 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueTyp
         int added_nrows = dims[n] - old_dims[n];
         if (added_nrows > 0) { // If we need to add more rows
 
-            for (int r = 0; r < added_nrows * rank; ++r) {
-                if (FillValueType_ == FILL_RANDOM) {
-                    fill_rand(&(M->U[n][old_dims[n] * rank]), added_nrows * rank);
-                } 
-                else if (FillValueType_ == FILL_ZEROS) {
+            if (FillValueType_ == FILL_RANDOM) {
+                fill_rand(&(M->U[n][old_dims[n] * rank]), added_nrows * rank);
+            } 
+
+            else if (FillValueType_ == FILL_ZEROS) {
+                #pragma omp for simd schedule(static)
+                for (int r = 0; r < added_nrows * rank; ++r) {
                     M->U[n][old_dims[n] * rank + r] = 0.0;
                 }
+
             }
 
             /*

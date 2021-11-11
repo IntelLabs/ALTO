@@ -310,7 +310,7 @@ void sptensor_write(
   
   FILE * fout;
   if (fname == NULL || strcmp(fname, "-") == 0) {
-    fout = stdout;
+    fout = stderr;
   } else {
     if ((fout = fopen(fname, "w")) == NULL) {
       fprintf(stderr, "SPLATT ERROR: failed to open '%s'\n.", fname);
@@ -318,7 +318,7 @@ void sptensor_write(
     }
   }
   sptensor_write_file(sptensor, fout);
-  if (fout != stdout) {
+  if (fout != stderr) {
     fclose(fout);
   }
 }
@@ -348,16 +348,16 @@ void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
 		tmp *= dims[i];
 	}
 	double sparsity = ((double)nnz) / tmp;
-	fprintf(stdout, "# Modes         = %u\n", nmodes);
-	fprintf(stdout, "Rank            = %llu\n", rank);
-	fprintf(stdout, "Sparsity        = %f\n", sparsity);
-	fprintf(stdout, "Max iters       = %d\n", max_iters);
-	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	fprintf(stderr, "# Modes         = %u\n", nmodes);
+	fprintf(stderr, "Rank            = %llu\n", rank);
+	fprintf(stderr, "Sparsity        = %f\n", sparsity);
+	fprintf(stderr, "Max iters       = %d\n", max_iters);
+	fprintf(stderr, "Dimensions      = [%llu", dims[0]);
 	for (int i = 1; i < nmodes; i++) {
-		fprintf(stdout, " X %llu", dims[i]);
+		fprintf(stderr, " X %llu", dims[i]);
 	}
-	fprintf(stdout, "]\n");
-	fprintf(stdout, "NNZ             = %llu\n", nnz);
+	fprintf(stderr, "]\n");
+	fprintf(stderr, "NNZ             = %llu\n", nnz);
 }
 
 void PrintSparseTensor(SparseTensor* X)
@@ -371,20 +371,20 @@ void PrintSparseTensor(SparseTensor* X)
 		tmp *= dims[i];
 	}
 	double sparsity = ((double)nnz) / tmp;
-	fprintf(stdout, "# Modes         = %u\n", nmodes);
-	fprintf(stdout, "Sparsity        = %f\n", sparsity);
-	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
+	fprintf(stderr, "# Modes         = %u\n", nmodes);
+	fprintf(stderr, "Sparsity        = %f\n", sparsity);
+	fprintf(stderr, "Dimensions      = [%llu", dims[0]);
 	for (int i = 1; i < nmodes; i++) {
-		fprintf(stdout, " X %llu", dims[i]);
+		fprintf(stderr, " X %llu", dims[i]);
 	}
-	fprintf(stdout, "]\n");
-	fprintf(stdout, "NNZ             = %llu\n", nnz);
+	fprintf(stderr, "]\n");
+	fprintf(stderr, "NNZ             = %llu\n", nnz);
 
   for (IType n = 0; n < X->nnz; ++n) {
     for (int m = 0; m < nmodes; ++m) {
-      fprintf(stdout, "%llu", X->cidx[m][n]);
-      if (m != nmodes - 1) fprintf(stdout, "\t");
+      fprintf(stderr, "%llu", X->cidx[m][n]);
+      if (m != nmodes - 1) fprintf(stderr, "\t");
     }
-    fprintf(stdout, "\n");
+    fprintf(stderr, "\n");
   }
 }

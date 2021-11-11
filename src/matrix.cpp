@@ -114,6 +114,7 @@ void matmul(
 
 double mat_norm_diff(FType * matA, FType * matB, IType size) {
     double norm = 0.0;
+    #pragma omp parallel for reduction(+: norm) proc_bind(close)
     for (int i = 0; i < size; ++i) {
         FType diff = matA[i] - matB[i];
         norm += diff * diff;
@@ -123,6 +124,7 @@ double mat_norm_diff(FType * matA, FType * matB, IType size) {
 
 double mat_norm(FType * mat, IType size) {
     double norm = 0.0;
+    #pragma omp parallel for reduction(+: norm) proc_bind(close)
     for (int i = 0; i < size; ++i) {
         norm += mat[i] * mat[i];
     }
@@ -132,6 +134,7 @@ double mat_norm(FType * mat, IType size) {
 /* Computes the elementwise product for all other aTa matrices besidse the mode */
 void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode) {
     // Init gram matrix
+    #pragma omp parallel for schedule(static)
     for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
         out_mat->vals[i] = 1.0;
     }
@@ -139,6 +142,7 @@ void mat_form_gram(Matrix ** aTa, Matrix * out_mat, IType nmodes, IType mode) {
     for (IType m = 0; m < nmodes; ++m) {
         if (m == mode) continue;
         // TODO: do only upper triangular entries
+        #pragma omp parallel for schedule(static)
         for (IType i = 0; i < out_mat->I * out_mat->J; ++i) {
             out_mat->vals[i] *= aTa[m]->vals[i];        
         }
@@ -197,7 +201,7 @@ void copy_upper_tri(Matrix * M) {
   IType const J = M->J;
   FType * const vals = M->vals;
 
-  #pragma omp parallel for schedule(static, 1) if(I > 50)
+  #pragma omp parallel for schedule(static, 1)
   for(IType i=1; i < I; ++i) {
     for(IType j=0; j < i; ++j) {  
       vals[j + (i*J)] = vals[i + (j*J)];
