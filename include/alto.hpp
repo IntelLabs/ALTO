@@ -181,7 +181,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     setup_packed_alto(_at, LSB_FIRST, SHORT_FIRST);
     //wtime = ElapsedTime (ReadTSC() - ticks);
     wtime = omp_get_wtime() - wtime_s;
-    printf("ALTO: setup time = %f (s)\n", wtime);
+    fprintf(stderr, "ALTO: setup time = %f (s)\n", wtime);
 
     //local buffer
     LIT ALTO_MASKS[MAX_NUM_MODES];
@@ -209,13 +209,13 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
 #endif
     }
     wtime = omp_get_wtime() - wtime_s;
-    printf("ALTO: Linearization time = %f (s)\n", wtime);
+    fprintf(stderr, "ALTO: Linearization time = %f (s)\n", wtime);
 
     //Sort the nonzeros based on their line position.  
     wtime_s = omp_get_wtime();
     sort_alto(_at);
     wtime = omp_get_wtime() - wtime_s;
-    printf("ALTO: sort time = %f (s)\n", wtime);
+    fprintf(stderr, "ALTO: sort time = %f (s)\n", wtime);
 
 #ifdef ALT_PEXT
     //Re-encode the ALTO index.
@@ -243,10 +243,10 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
         _at->mode_masks[n] = ((1 << num_bits) - 1);
     }
     wtime = omp_get_wtime() - wtime_s;
-    printf("ALTO: reorder time = %f (s)\n", wtime);
+    fprintf(stderr, "ALTO: reorder time = %f (s)\n", wtime);
 #ifdef ALTO_DEBUG
     for (int n = 0; n < nmode; n++) {
-        printf("ALTO_MASKS[%d] = 0x%llx, pos=%d\n", n, _at->mode_masks[n], _at->mode_pos[n]);
+        fprintf(stderr, "ALTO_MASKS[%d] = 0x%llx, pos=%d\n", n, _at->mode_masks[n], _at->mode_pos[n]);
     }
 #endif
 #endif
@@ -255,7 +255,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     wtime_s = omp_get_wtime();
     prtn_alto(_at, nprtn);
     wtime = omp_get_wtime() - wtime_s;
-    printf("ALTO: prtn time = %f (s)\n", wtime);
+    fprintf(stderr, "ALTO: prtn time = %f (s)\n", wtime);
 
     *at = _at;
 }
@@ -335,7 +335,7 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
             //printf("p%d: storage=%f MB\n", p, ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0));
             total_storage += ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0);
         } // nprtn
-        printf("ofibs storage/prtn: %f MB\n", total_storage/(double)nprtn);
+        fprintf(stderr, "ofibs storage/prtn: %f MB\n", total_storage/(double)nprtn);
     } // omp parallel
     *ofibs = _ofibs;
 }
@@ -590,7 +590,7 @@ setup_alto(AltoTensor<LIT>* at)
         int num_bits = (sizeof(IType) * 8) - clz(at->dims[n] - 1);
         alto_bits_min += num_bits;
         alto_bits_max = std::max(alto_bits_max, num_bits);
-        printf("num_bits for mode-%d=%d\n", n + 1, num_bits);
+        fprintf(stderr, "num_bits for mode-%d=%d\n", n + 1, num_bits);
 
         for (int i = 0; i < num_bits - 1; ++i) {
             ALTO_MASKS[n] |= 0x1;
@@ -601,15 +601,15 @@ setup_alto(AltoTensor<LIT>* at)
         alto_mask |= ALTO_MASKS[n];
         at->mode_masks[n] = ALTO_MASKS[n];
 #ifdef ALTO_DEBUG
-        printf("ALTO_MASKS[%d] = 0x%llx\n", n, ALTO_MASKS[n]);
+        fprintf(stderr, "ALTO_MASKS[%d] = 0x%llx\n", n, ALTO_MASKS[n]);
 #endif
     }
     at->alto_mask = alto_mask;
 
     alto_bits_max *= nmode;
-    printf("alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
+    fprintf(stderr, "alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
 #ifdef ALTO_DEBUG
-    printf("alto_mask = 0x%llx\n", alto_mask);
+    fprintf(stderr, "alto_mask = 0x%llx\n", alto_mask);
 #endif    
 
     assert(alto_bits_max <= ((int)sizeof(LIT) * 8));
@@ -643,7 +643,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         alto_bits_min += mbits;
         max_num_bits = std::max(max_num_bits, mbits);
         min_num_bits = std::min(min_num_bits, mbits);
-        printf("num_bits for mode-%d=%d\n", n + 1, mbits);
+        fprintf(stderr, "num_bits for mode-%d=%d\n", n + 1, mbits);
     }
     
 #ifdef ALT_PEXT
@@ -656,24 +656,24 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
     
     alto_bits_max = max_num_bits * nmode;
     //printf("range of mode bits=[%d %d]\n", min_num_bits, max_num_bits);
-    printf("alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
+    fprintf(stderr, "alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
 
     assert(alto_bits_min <= ((int)sizeof(LIT) * 8));
 
     //Assuming we use a power-2 data type for ALTO_idx with a minimum size of a byte
     //int alto_bits = pow(2, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
     int alto_bits = (int)0x1 << std::max<int>(3, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
-    printf("alto_bits=%d\n", alto_bits);
+    fprintf(stderr, "alto_bits=%d\n", alto_bits);
 
     double alto_storage = 0;
     alto_storage = at->nnz * (sizeof(FType) + sizeof(LIT));
-    printf("Alto format storage:    %g Bytes\n", alto_storage);
+    fprintf(stderr, "Alto format storage:    %g Bytes\n", alto_storage);
     
     alto_storage = at->nnz * (sizeof(FType) + (alto_bits >> 3));
-    printf("Alto-power-2 format storage:    %g Bytes\n", alto_storage);
+    fprintf(stderr, "Alto-power-2 format storage:    %g Bytes\n", alto_storage);
 
     alto_storage = at->nnz * (sizeof(FType) + (alto_bits_min >> 3));
-    printf("Alto-opt format storage:    %g Bytes\n", alto_storage);
+    fprintf(stderr, "Alto-opt format storage:    %g Bytes\n", alto_storage);
     
     {//Dilation & shifting.
         int level = 0, shift = 0, inc = 1;
@@ -711,12 +711,12 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         at->mode_masks[n] = ALTO_MASKS[n];
         alto_mask |= ALTO_MASKS[n];
 #ifdef ALTO_DEBUG        
-        printf("ALTO_MASKS[%d] = 0x%llx\n", n, ALTO_MASKS[n]);
+        fprintf(stderr, "ALTO_MASKS[%d] = 0x%llx\n", n, ALTO_MASKS[n]);
 #endif
     }
     at->alto_mask = alto_mask;
 #ifdef ALTO_DEBUG
-    printf("alto_mask = 0x%llx\n", alto_mask);
+    fprintf(stderr, "alto_mask = 0x%llx\n", alto_mask);
 #endif
     free(mode_bits);
 }
@@ -761,7 +761,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     int nmode = at->nmode;
     IType nnz = at->nnz;
     IType nnz_ptrn = (nnz + nprtn - 1) / nprtn;
-    printf("num_ptrn=%d, nnz_ptrn=%llu\n", nprtn, nnz_ptrn);
+    fprintf(stderr, "num_ptrn=%d, nnz_ptrn=%llu\n", nprtn, nnz_ptrn);
 
     //local buffer
     LIT ALTO_MASKS[MAX_NUM_MODES];
@@ -815,7 +815,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
             }
         }
         else { //empty partition
-            printf("p%d: is empty\n", p);
+            fprintf(stderr, "p%d: is empty\n", p);
         }
 #endif
     }// omp parallel
@@ -854,7 +854,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     // Checking conflicts using interval intersections.
     for (int p = 0; p < nprtn; ++p) {
         for (int n = 0; n < nmode; ++n) {
-            printf("p%d: mode%d: conflicts ", p, n+1);
+            fprintf(stderr, "p%d: mode%d: conflicts ", p, n+1);
             Interval myintvl = at->prtn_intervals[p*nmode+n];
             for (int i = 0; i < nprtn; ++i) {
                 if( i != p) {
@@ -863,11 +863,11 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
                         //no conflict
                     } else {
                         //conflict
-                        printf("%d[%llu %llu] ", i, std::max(intvl.start, myintvl.start), std::min(intvl.stop, myintvl.stop));
+                        fprintf(stderr, "%d[%llu %llu] ", i, std::max(intvl.start, myintvl.start), std::min(intvl.stop, myintvl.stop));
                     }
                 }
             }
-            printf("\n");
+            fprintf(stderr, "\n");
         }
     }
 #endif
@@ -880,7 +880,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     LIT alto_cr_mask = 0;
     
     int free_bits = (sizeof(LIT) * 8) - alto_bits;
-    printf("ALTO: free_bits = %d\n", free_bits);
+    fprintf(stderr, "ALTO: free_bits = %d\n", free_bits);
     //short int is large enough to support an appropriate number of partitions. 
     short int** out_fibs = (short int**)AlignedMalloc(nmode * sizeof(short int*));
     assert(out_fibs);
@@ -889,13 +889,13 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     for (int n = 0; n < nmode; ++n) {
         IType num_fibs = at->dims[n];
         IType fib_reuse = at->nnz / num_fibs;
-        printf("ALTO: fib_reuse[%d]=%llu\n", n, fib_reuse);
+        fprintf(stderr, "ALTO: fib_reuse[%d]=%llu\n", n, fib_reuse);
         if ((fib_reuse <= MIN_FIBER_REUSE) && free_bits) {
             //if(free_bits){
             at->cr_masks[n] = (LIT)0x1 << ((sizeof(LIT) * 8) - free_bits);
             alto_cr_mask |= at->cr_masks[n];
 #ifdef ALTO_DEBUG            
-            printf("ALTO: cr_masks[%d]=0x%llx\n", n, at->cr_masks[n]);
+            fprintf(stderr, "ALTO: cr_masks[%d]=0x%llx\n", n, at->cr_masks[n]);
 #endif            
             out_fibs[n] = (short int*)AlignedMalloc(num_fibs * sizeof(short int));
         #pragma omp parallel for
@@ -908,7 +908,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     }//modes
     at->alto_cr_mask = alto_cr_mask;
 #ifdef ALTO_DEBUG    
-    printf("ALTO: alto_cr_mask=0x%llx\n", alto_cr_mask);
+    fprintf(stderr, "ALTO: alto_cr_mask=0x%llx\n", alto_cr_mask);
 #endif
     
     if (alto_cr_mask) {

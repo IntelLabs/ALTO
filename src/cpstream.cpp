@@ -155,7 +155,7 @@ void cpstream(
 
     double const final_err = cpd_error(X, factored);
 
-    fprintf(stderr, "final fit error: %f\n", final_err);
+    fprintf(stdout, "final fit error: %f\n", final_err);
 #if DEBUG == 1
     PrintKruskalModel(factored);
 #endif
@@ -185,7 +185,6 @@ void cpstream_iter(
         use_alto ? "ALTO" : "Non ALTO", iteration, max_iters, epsilon);
 
     // Timing stuff
-    InitTSC();
     uint64_t ts = 0;
     uint64_t te = 0;
 
@@ -544,7 +543,6 @@ void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
     int streaming_mode, int iteration, bool use_alto)
 {
   /* Timing stuff */
-  InitTSC();
   uint64_t ts = 0;
   uint64_t te = 0;
 
@@ -1061,9 +1059,9 @@ void spcpstream_iter(SparseTensor* X, KruskalModel* M, KruskalModel * prev_M,
   }
   /* End: Cleaning up */
 
-  fprintf(stderr, "timing SPCPSTREAM-ITER\n");
-  fprintf(stderr, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmemset\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\trow op\tmat conv\tupd fm\n");
-  fprintf(stderr, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
+  fprintf(stdout, "timing SPCPSTREAM-ITER\n");
+  fprintf(stdout, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmemset\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\trow op\tmat conv\tupd fm\n");
+  fprintf(stdout, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
       iteration+1, X->nnz, num_inner_iter+1, 
       t_alto, t_mttkrp_sm, t_bs_sm, 
       t_memset, t_mttkrp_om, t_add_historical, 
