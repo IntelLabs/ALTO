@@ -11,7 +11,7 @@ public:
   ~StreamMatrix();
 
   void grow_zero(IType nrows);
-  void grow_rand(IType nrows);
+  void grow_rand(IType nrows, unsigned int seed);
 
   inline Matrix * mat() { return _mat; };
   inline FType * vals() { return _mat->vals; };

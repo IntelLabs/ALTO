@@ -31,11 +31,12 @@ source /packages/intel/19/linux/pkg_bin/compilervars.sh -arch intel64 -platform 
 
 #uber
 #make && ./cpd128 --rank 16 -m 200 -e 1e-5 -a 0 -l spcpstream_alto -x 44 -i ~/hpctensor/uber.tns
-make && ./cpd128 --rank 16 -m 200 -e 1e-5 -a 0 -l cpstream_alto -x 44 -i ~/hpctensor/uber.tns
+#make && ./cpd128 --rank 16 -m 200 -e 1e-5 -a 0 -l cpstream_alto -x 44 -i ~/hpctensor/uber.tns
 
 #flickr
 #make && ./cpd128 --rank 16 -m 100 -a 3 -l spcpstream_alto -x 44 -i ~/hpctensor/flickr-4d.tns
 
 #debug
 #make && ./cpd128 --rank 16 -m 100 -a 3 -l spcpstream -x 44 -i ~/hpctensor/sm_flickr.tns
-#make && ./cpd128 --rank 16 -m 100 -a 3 -l spcpstream_alto -x 44 -i ~/hpctensor/sm_flickr.tns
+make && ./cpd128 --rank 16 -m 100 -a 3 -l spcpstream_alto -i ~/hpctensor/sm_flickr.tns
+#make && ./cpd128 --rank 16 -m 100 -a 3 -l spcpstream_alto -i ~/hpctensor/sm_flickr.tns

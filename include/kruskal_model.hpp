@@ -29,7 +29,7 @@ typedef enum fill_value_type
 
 void CreateKruskalModel(int mode, IType *dim, IType rank, KruskalModel **M_);
 
-void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueType_);
+void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueType_, unsigned int seed);
 
 void CopyKruskalModel(KruskalModel **prev_M_, KruskalModel **M_);
 

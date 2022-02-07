@@ -36,11 +36,11 @@ void StreamMatrix::grow(IType new_rows) {
     _mat->I = new_rows;
 }
 
-void StreamMatrix::grow_rand(IType new_rows) {
+void StreamMatrix::grow_rand(IType new_rows, unsigned int seed) {
     if (new_rows < _nrows) return;
     grow(new_rows);
     if (new_rows >= _nrows) {
-        fill_rand(&(_mat->vals[_nrows * _ncols]), (new_rows - _nrows) * _ncols);
+        fill_rand(&(_mat->vals[_nrows * _ncols]), (new_rows - _nrows) * _ncols, seed);
     }
     _nrows = new_rows;
 }

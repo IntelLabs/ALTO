@@ -15,7 +15,7 @@ Permutation * perm_alloc(
     IType const * const dims, int const nmodes);
 
 FType rand_val();
-void fill_rand(FType * vals, IType num_el);
+void fill_rand(FType * vals, IType num_el, unsigned int seed);
 
 IType argmin_elem(
   IType const * const arr,

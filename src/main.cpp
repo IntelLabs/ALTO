@@ -420,8 +420,8 @@ int main(int argc, char** argv)
 
 				init_grams(&grams, M);
 			} else {
-				GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
-				GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
+				GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM, seed); // Expands the kruskal model to accomodate new dimensions
+				GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS, seed); // Expands the kruskal model to accomodate new dimensions
 				for (int j = 0; j < M->mode; ++j) {
 					if (j != streaming_mode) {
 						update_gram(grams[j], M, j);

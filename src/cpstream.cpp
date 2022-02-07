@@ -80,8 +80,8 @@ void cpstream(
                 grams[streaming_mode]->vals[i] = 0.0;
             }
         } else {
-            GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM); // Expands the kruskal model to accomodate new dimensions
-            GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS); // Expands the kruskal model to accomodate new dimensions
+            GrowKruskalModel(t_batch->dims, &M, FILL_RANDOM, seed); // Expands the kruskal model to accomodate new dimensions
+            GrowKruskalModel(t_batch->dims, &prev_M, FILL_ZEROS, seed); // Expands the kruskal model to accomodate new dimensions
 
             for (int j = 0; j < M->mode; ++j) {
                 if (j != streaming_mode) {
@@ -478,9 +478,9 @@ void cpstream_iter(
     }
     free(writelocks);
 
-    fprintf(stderr, "timing CPSTREAM-ITER\n");
-    fprintf(stderr, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmem set\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\n");
-    fprintf(stderr, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
+    fprintf(stdout, "timing CPSTREAM-ITER\n");
+    fprintf(stdout, "#ts\t#nnz\t#it\talto\tmttkrp_sm\tbs_sm\tmem set\tmttkrp_om\thist\tbs_om\tupd_gram\tconv_check\n");
+    fprintf(stdout, "%d\t%llu\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", 
         iteration+1, X->nnz, num_inner_iter+1, 
         t_alto, t_mttkrp_sm, t_bs_sm, 
         t_memset, t_mttkrp_om, t_add_historical, 

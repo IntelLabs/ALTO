@@ -25,8 +25,8 @@ FType rand_val()
   return v;
 }
 
-void fill_rand(FType * vals, IType num_el) {
-    srand(44);
+void fill_rand(FType * vals, IType num_el, unsigned int seed) {
+    srand(seed);
     for(IType i=0; i < num_el; ++i) {
         vals[i] = rand_val();
     } 

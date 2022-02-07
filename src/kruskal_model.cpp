@@ -93,70 +93,7 @@ void CreateKruskalModel(int mode, IType *dims, IType rank, KruskalModel **M_)
     *M_ = M;
 }
 
-// Expand the size of the Kruskal Model given new dimensions
-// This version is the one that maintains the full temporal factor matrices
-/*
-void GrowKruskalModel(IType *dims, KruskalModel **M_, int streaming_mode)
-{
-    IType mode = (*M_)->mode;
-    IType rank = (*M_)->rank;
-    IType * old_dims = (*M_)->dims; // previous dimension sizes
-    FType ** U = (*M_)->U;
-    FType * lambda = (*M_)->lambda;
-
-    assert(rank >= 1);
-    assert(mode >= 1);
-
-    KruskalModel *M = (KruskalModel *)AlignedMalloc(sizeof(KruskalModel));
-    assert(M != NULL);
-
-    M->mode = mode;
-    M->rank = rank;
-    M->dims = (IType *) AlignedMalloc(mode * sizeof(IType));
-    assert(M->dims != NULL);
-    memcpy(M->dims, dims, sizeof(IType) * mode); // copy new dims to new kruskal
-
-    M->U = (FType **)AlignedMalloc(mode * sizeof(FType *));
-    assert(M->U != NULL);
-    for (int n = 0; n < mode; ++n) {
-        if (n != streaming_mode) {
-            M->U[n] = (FType *)AlignedMalloc(dims[n] * rank * sizeof(FType));
-            assert(M->U[n] != NULL);
-
-            // Copy values from previous factor matrix to expanded factor matrix
-            memcpy(M->U[n], U[n], old_dims[n] * rank * sizeof(FType));
-
-            // Fill exceeding values with zeros
-            int added_nrows = dims[n] - old_dims[n];
-            if (added_nrows > 0) { // If we need to add more rows
-                for (int r = 0; r < added_nrows * rank; ++r) {
-                    // Set all added entries to 0.0
-                    M->U[n][old_dims[n] * rank + r] = 0.0;
-                }
-            }
-        } else { 
-            // Grow the streaming mode by 1
-            int current_dim = (*M_)->dims[n];
-            M->U[n] = (FType *)AlignedMalloc((current_dim + 1) * rank * sizeof(FType));
-            assert(M->U[n] != NULL);
-
-            // Copy values from previous factor matrix to expanded factor matrix
-            memcpy(M->U[n], U[n], current_dim * rank * sizeof(FType));
-
-            for (int r = 0; r < rank; ++r) {
-                M->U[n][current_dim * rank + r] = 0.0;
-            }
-            M->dims[n] = current_dim + 1;
-        }
-    }
-    M->lambda = (FType *) AlignedMalloc(rank * sizeof (FType));
-    assert(M->lambda != NULL);
-    memcpy(M->lambda, lambda, sizeof(FType) * rank);
-    DestroyKruskalModel(*M_);
-    *M_ = M;
-}
-*/
-void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueType_)
+void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueType_, unsigned int seed)
 {
     IType mode = (*M_)->mode;
     IType rank = (*M_)->rank;
@@ -190,7 +127,7 @@ void GrowKruskalModel(IType *dims, KruskalModel **M_, FillValueType FillValueTyp
         if (added_nrows > 0) { // If we need to add more rows
 
             if (FillValueType_ == FILL_RANDOM) {
-                fill_rand(&(M->U[n][old_dims[n] * rank]), added_nrows * rank);
+                fill_rand(&(M->U[n][old_dims[n] * rank]), added_nrows * rank, seed);
             } 
 
             else if (FillValueType_ == FILL_ZEROS) {
@@ -290,33 +227,9 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
             M->U[n][i] = (FType) 1.0;
         }
         #else
-        fill_rand(M->U[n], M->dims[n] * M->rank);
+        fill_rand(M->U[n], M->dims[n] * M->rank, seed);
         #endif
     }
-    /*
-            fill_rand(&(M->U[n][]));
-            FType v = 3.0 * ((FType) rand() / (FType) RAND_MAX);
-            if (rand() % 2 == 0) v *= -1;
-            M->U[n][i] = v;
-            #endif
-*/
-/*
-    srand(seed);
-    for (int n = 0; n < M->mode; n++) {
-        #pragma omp parallel
-        {
-            unsigned int local_seed = seed + omp_get_thread_num();
-            #pragma omp for simd schedule(static)
-            for (IType i = 0; i < M->dims[n] * M->rank; i++) {
-                #if DEBUG == 1
-                M->U[n][i] = (FType) 1.0;
-                #else
-                M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
-                #endif
-            }
-        }
-    }
-    */
 }
 
 void KruskalModelZeroInit(KruskalModel *M)
