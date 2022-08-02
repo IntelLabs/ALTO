@@ -405,6 +405,8 @@ void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
 		for (int m = 0; m < AT->nmode; ++m) {
 			mttkrp_alto_par(m, factors, rank, AT, writelocks, ofibs);
 		}
+	} else {
+		 mttkrp_alto_par(target_mode, factors, rank, AT, writelocks, ofibs);
 	}
 	// Do ALTO mttkrp
 	wtime_s = omp_get_wtime();
