@@ -1342,23 +1342,22 @@ cp_apr_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, int max_inner_i
     fprintf(stdout, "CP-APR post-processing time = %f (s)\n", wtime_post);
     fprintf(stdout, "CP-APR TOTAL time           = %f (s)\n",
             wtime_pre + wtime_apr + wtime_post);
-
-    fprintf(stdout, "Time per iteration          = %f (s)\n",
+    fprintf(stdout, "Time per iteration          = %f (s)\n\n",
             (wtime_pre + wtime_apr + wtime_post)/nTotalInner);
 
-    fprintf(stdout, "%f,%f,%.2f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d,%d,%d,%d,%e,%e,%e,%d,%d,%s,%f\n",
-            wtime_pre, wtime_apr, 0.0, wtime_apr_phi, wtime_post,
-            modeTimes[0], nmodes > 1 ? modeTimes[1] : 0, nmodes > 2 ? modeTimes[2] : 0,
-            nmodes > 3 ? modeTimes[3] : 0, nmodes > 4 ? modeTimes[4] : 0,
+    fprintf(stdout, "outer-its  inner-its  its-mode1  its-mode2  its-mode3  its-mode4  its-mode5  ");
+    fprintf(stdout, "LL           LSF         KKT         max-o-its  max-i-its  mem-mgmt\n");
+    fprintf(stdout, "%-7d    %-7d    %-7d    %-7d    %-7d    %-7d    %-7d    %07.4e  %07.4e  %07.4e  %-7d    %-7d    %-7s\n",
             iter, nTotalInner, nInnerItersPerMode[0], nInnerItersPerMode[1],
             nInnerItersPerMode[2], nmodes > 3 ? nInnerItersPerMode[3] : 0, nmodes > 4 ? nInnerItersPerMode[4] : 0,
             obj, fit, kktViolations[iter-1], max_iters, max_inner_iters,
-            needPhiPrecomp ? "pre" : needPhiPrecomp ? "dyn" : "otf",
-            (wtime_pre + wtime_apr + wtime_post)/nTotalInner);
-    //printf("%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n", (wtime_pre + wtime_apr + wtime_post)/nTotalInner, modeTimes[0], modeTimes[0]/nTotalInner,
-    //                                                modeTimes[1], modeTimes[1]/nTotalInner, modeTimes[2], modeTimes[2]/nTotalInner,
-    //                                                modeTimes[3], modeTimes[3]/nTotalInner, modeTimes[4], modeTimes[4]/nTotalInner,
-    //                                                );
+            needPhiPrecomp ? "pre" : needPhiPrecomp ? "dyn" : "otf");
+    fprintf(stdout, "Total    Pre-proc  CP-APR   Phi      Post-proc  mode1    mode2    ");
+    fprintf(stdout, "mode3    mode4    mode5    time-per-it\n");
+    fprintf(stdout, "%07.4f  %07.4f   %07.4f  %07.4f  %07.4f    %07.4f  %07.4f  %07.4f  %07.4f  %07.4f  %07.4f\n",
+            wtime_pre + wtime_apr + wtime_post, wtime_pre, wtime_apr, wtime_apr_phi, wtime_post,
+            modeTimes[0], nmodes > 1 ? modeTimes[1] : 0, nmodes > 2 ? modeTimes[2] : 0, nmodes > 3 ? modeTimes[3] : 0,
+            nmodes > 4 ? modeTimes[4] : 0, (wtime_pre + wtime_apr + wtime_post)/nTotalInner);
 
     // for (int n = 0; n < nmodes; n++) {
     //     AlignedFree(Phi[n]);
