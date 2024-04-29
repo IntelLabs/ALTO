@@ -39,7 +39,6 @@ void mttkrp(SparseTensor* X, KruskalModel* M, IType mode);
 static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode);
 static void destroy_grams(FType** grams, KruskalModel* M);
 static void init_grams(FType*** grams, KruskalModel* M);
-static void update_gram(FType* gram, KruskalModel* M, int mode);
 
 template <typename LIT>
 void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilon)
@@ -71,12 +70,12 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
 
   // Compute ttnormsq to later compute fit
   FType normAT = 0.0;
-  FType* vals = AT->vals;
+  ValType* vals = AT->vals;
   IType nnz = AT->nnz;
 
   #pragma omp parallel for reduction(+:normAT) schedule(static)
   for(IType i = 0; i < nnz; ++i) {
-    normAT += vals[i] * vals[i];
+    normAT += (FType)vals[i] * (FType)vals[i];
   }
 
   // Compute initial A**T * A for every mode
@@ -145,7 +144,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
     wtime_fit = omp_get_wtime();
     fit = cpd_fit_alto(AT, M, grams, scratch, normAT);
     wtime_fit_tot       += omp_get_wtime() - wtime_fit;
-    
+
     wtime_mttkrp_tot    += wtime_mttkrp;
     wtime_pseudoinv_tot += wtime_pseudoinv;
     wtime_copy_tot      += wtime_copy;
@@ -163,7 +162,7 @@ void cpd_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, double epsilo
 
     prev_fit = fit;
   } // for max_iters
-    
+
   wtime_tot = omp_get_wtime() - wtime_tot;
   printf("Total time (for MTTKRP):\t %.4f s (%.4f s)\n", wtime_tot, wtime_mttkrp_tot);
   printf("Total     MTTKRP    PseudoInv MemCopy   Normalize Update    Fit\n");
@@ -198,7 +197,7 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, FType** grams, FType* 
 
   FType* accum = (FType*) AlignedMalloc(sizeof(FType) * rank);
   assert(accum);
-  memset(accum, 0, sizeof(FType*) * rank);
+  memset(accum, 0, sizeof(FType) * rank);
 
   // Computing the inner product for M->U and U_mttkrp
   #pragma omp parallel for reduction(+: accum[:rank]) schedule(static)
@@ -219,7 +218,7 @@ double cpd_fit_alto(AltoTensor<LIT>* AT, KruskalModel* M, FType** grams, FType* 
   // This can be done via taking the hadamard product between all the gram
   // matrices, and then summing up all the elements and taking the square root
   // of the absolute value
-  FType* tmp_gram = (FType*) AlignedMalloc(sizeof(FType) * rank * rank);
+  FType* tmp_gram = (FType*) AlignedMalloc(rank * rank * sizeof(FType));
   assert(tmp_gram);
 
   #pragma omp parallel for schedule(static)
@@ -576,12 +575,12 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
 
   #pragma unroll
   for (IType i = 0; i < rank; ++i) {
-    #pragma omp simd 
+    #pragma omp simd
     for (IType j = 0; j < rank; ++j) {
       vals[j * rank + i] = grams[mode][i * rank + j];
     }
   }
-  
+
   memcpy(grams[mode], vals, rank * rank * sizeof(FType));
   // Backup grams[mode] in case Cholesky fails
   memcpy(scratch, vals, sizeof(FType) * rank * rank);
@@ -597,7 +596,7 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
   lapack_int info;
 
   POTRF(&uplo, &_rank, grams[mode], &_rank, &info);
-  
+
   if(info == 0) {
     // Cholesky was successful - use it to find the pseudo_inverse and multiply
     // it with the MTTKRP result
@@ -622,17 +621,17 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
     lapack_int* jpvt = (lapack_int*) AlignedMalloc(sizeof(lapack_int) * rank);
     memset(jpvt, 0, sizeof(lapack_int) * rank);
     lapack_int lwork = -1;
-    double work_qr;
+    FType work_qr;
     lapack_int ret_rank;
     lapack_int info_dgelsy;
-    double rcond = -1.0f;//1.1e-16;
-    
+    FType rcond = -1.0f;//1.1e-16;
+
     GELSY(&_rank, &_rank, &I, grams[mode], &_rank, M->U[mode], &_rank,
           jpvt, &rcond, &ret_rank, &work_qr, &lwork, &info_dgelsy);
-    double* work = (double*) AlignedMalloc(sizeof(double) * work_qr);
+    FType* work = (FType*) AlignedMalloc(sizeof(FType) * work_qr);
     GELSY(&_rank, &_rank, &I, grams[mode], &_rank, M->U[mode], &_rank,
           jpvt, &rcond, &ret_rank, work, &lwork, &info_dgelsy);
-    
+
     fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);
     free(work);
     free(jpvt);
@@ -670,22 +669,6 @@ static void init_grams(FType*** grams, KruskalModel* M)
   }
 
   *grams = _grams;
-}
-
-
-static void update_gram(FType* gram, KruskalModel* M, int mode)
-{
-  MKL_INT m = M->dims[mode];
-  MKL_INT n = M->rank;
-  MKL_INT lda = n;
-  MKL_INT ldc = n;
-  FType alpha = 1.0;
-  FType beta = 0.0;
-
-  CBLAS_ORDER layout = CblasRowMajor;
-  CBLAS_UPLO uplo = CblasLower;
-  CBLAS_TRANSPOSE trans = CblasTrans;
-  SYRK(layout, uplo, trans, n, m, alpha, M->U[mode], lda, beta, gram, ldc);
 }
 
 #endif // CPD_HPP_

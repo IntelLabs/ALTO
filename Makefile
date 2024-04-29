@@ -24,17 +24,28 @@ DEFINES += -DALTO_RANKS_SPECIALIZED=$(subst $(space),,$(RANKS_SPECIALIZED))
 ifeq ($(THP_PRE_ALLOCATION),true)
 DEFINES += -DALTO_PRE_ALLOC
 endif
-ifeq ($(ALTERNATIVE_PEXT),true)
+ifeq ($(strip $(ALTERNATIVE_PEXT)),true)
 DEFINES += -DALT_PEXT
 endif
-ifeq ($(MEMTRACE),true)
+ifeq ($(strip $(MEMTRACE)),true)
 DEFINES += -DALTO_MEM_TRACE
 endif
-ifeq ($(DEBUG),true)
+ifeq ($(strip $(DEBUG)),true)
 DEFINES += -DALTO_DEBUG
 endif
-ifeq ($(BLAS_LIBRARY),MKL)
+ifeq ($(strip $(BLAS_LIBRARY)),MKL)
 DEFINES += -DMKL
+endif
+ifeq ($(strip $(ALTO_IDX_TYPE)),INT32)
+DEFINES += -DIDX_TYPE32
+endif
+ifeq ($(strip $(ALTO_FP_TYPE)),FP32)
+DEFINES += -DFP_TYPE32
+endif
+ifeq ($(strip $(ALTO_VAL_TYPE)),INT32)
+DEFINES += -DVAL_TYPE_INT32
+else ifeq ($(strip $(ALTO_VAL_TYPE)),INT64)
+DEFINES += -DVAL_TYPE_INT64
 endif
 
 INCLUDES += -I$(INC_DIR)
@@ -62,7 +73,7 @@ $(BUILD_DIR)/%.o:  $(SRC_DIR)/%.cpp
 	@echo "===>  COMPILE  $@"
 	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-$(BUILD_DIR)/%.s:  $(SRC_DIR)/%.c
+$(BUILD_DIR)/%.s:  $(SRC_DIR)/%.cpp
 	@echo "===>  GENERATE ASM  $@"
 	$(CXX) -S $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

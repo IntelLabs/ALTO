@@ -11,7 +11,8 @@
 #include <inttypes.h>
 #include <float.h>
 #include <sys/mman.h>
-#ifdef USE_MKL_
+//#ifdef USE_MKL_
+#ifdef MKL
 #include <mkl.h>
 #endif
 #ifdef USE_ESSL_
@@ -33,24 +34,46 @@
 // set the PRE_ALLOC[_ALTO] definitions in main.c and alto.c accordingly for the general
 // usage of hugepages
 
-typedef unsigned long long IType;
-#if 1
-typedef double FType;
-#define POTRF  dpotrf_
-#define POTRS  dpotrs_
-#define GELSY  dgelsy_
-#define SYRK   cblas_dsyrk
+
+// Ordinal Type
+#ifdef IDX_TYPE32
+  typedef unsigned int IType;
 #else
-typedef float FType;
-#define POTRF  spotrf
-#define POTRS  spotrs
-#define GELSY  sgelsy
-#define SYRK   cblas_ssyrk
+  typedef unsigned long long IType;
+#endif
+
+// Floating Point Type - used, e.g., for Kruskal tensors
+#ifdef FP_TYPE32
+  typedef float FType;
+  #define POTRF  spotrf
+  #define POTRS  spotrs
+  #define GELSY  sgelsy
+  #define SYRK   cblas_ssyrk
+#else
+  typedef double FType;
+  #define POTRF  dpotrf_
+  #define POTRS  dpotrs_
+  #define GELSY  dgelsy_
+  #define SYRK   cblas_dsyrk
+#endif
+
+
+// Value Type
+#ifdef VAL_TYPE_INT32
+  // use an integer type for count data
+  typedef uint32_t ValType;
+#elif VAL_TYPE_INT64
+  typedef unsigned long long ValType;
+#else
+  typedef FType ValType;
 #endif
 
 #define CACHELINE      64
 
 #define ROW 1
+
+typedef enum Model_ { ALS, APR } Model;
+
 
 inline uint64_t ReadTSC(void)
 {
@@ -212,4 +235,5 @@ double ElapsedTime(uint64_t ticks);
 void PrintFPMatrix(char *name, FType * a, size_t m, size_t n);
 
 void PrintIntMatrix(char *name, size_t * a, size_t m, size_t n);
+
 #endif // COMMON_HPP_

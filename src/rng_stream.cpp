@@ -16,16 +16,6 @@ void DestroyRNGStream(void *stream)
 }
 
 
-void RNGStreamUniform(void * stream, double low, double high,
-                      size_t len_v, double *v)
-{
-    RNG *rng = (RNG *)stream;
-    for (size_t i = 0; i < len_v; i++) {
-        v[i] = rng_randfp64(rng) * (high - low) + low;
-    }
-}
-
-
 void RNGStream64(void * stream, size_t len_v, uint64_t *v)
 {
     RNG *rng = (RNG *)stream;

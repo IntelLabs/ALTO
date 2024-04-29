@@ -22,9 +22,9 @@ static void UniformRandom(IType n, FType low, FType high, FType *a)
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
-        int nthreads = omp_get_num_threads();        
+        int nthreads = omp_get_num_threads();
         void *stream = rng_streams[tid];
-        IType chunk = (n + nthreads - 1)/nthreads; 
+        IType chunk = (n + nthreads - 1)/nthreads;
         IType start = tid * chunk;
         IType end = start + chunk;
         end = (end > n ? n : end);
@@ -67,7 +67,7 @@ static void ProbSample(IType nprob, FType *prob,
         for (IType i = 0; i < len; i++) {
             samples[(n + i) * lds] = Binning(work[i], nprob + 1, prob);
         }
-    }    
+    }
 }
 
 
@@ -81,7 +81,7 @@ static void ProbCount(IType nprob, FType *prob, IType nsamples, IType *count,
             IType idx = Binning(work[i], nprob + 1, prob);
             count[idx]++;
         }
-    }    
+    }
 }
 
 
@@ -104,14 +104,14 @@ void CreatePoissonGenerator(int mode, IType *dims, PoissonGenerator **pg_)
     PoissonGenerator *pg =
         (PoissonGenerator *)AlignedMalloc(sizeof(PoissonGenerator));
     assert(pg != NULL);
-    
+
     assert(mode > 0);
     pg->mode = mode;
     IType max_dims = 0.0;
     for (int n = 0; n < mode; n++) {
         assert(dims[n] >= 1);
         max_dims = (max_dims > dims[n] ? max_dims : dims[n]);
-    }   
+    }
     pg->dims = (IType *)AlignedMalloc(sizeof(IType) * mode);
     assert(pg->dims != NULL);
     memcpy(pg->dims, dims, sizeof(IType) * mode);
@@ -124,7 +124,7 @@ void CreatePoissonGenerator(int mode, IType *dims, PoissonGenerator **pg_)
         int tid = omp_get_thread_num();
         CreateRNGStream(SEED + tid, &(rng_streams[tid]));
     }
-    
+
     *pg_ = pg;
 }
 
@@ -144,7 +144,7 @@ void DestroyPoissonGenerator(PoissonGenerator *pg)
 
 static void GenerateRandomModel(PoissonGenerator *pg, KruskalModel *M)
 {
-    int mode = pg->mode;    
+    int mode = pg->mode;
     IType rank = M->rank;
     IType *dims = pg->dims;
     IType max_dims = 0;
@@ -155,7 +155,7 @@ static void GenerateRandomModel(PoissonGenerator *pg, KruskalModel *M)
     assert(perm != NULL);
     FType *vals = (FType *)AlignedMalloc(sizeof(FType) * (max_dims + 1));
     assert(vals != NULL);
-    
+
     for (int n = 0; n < mode; n++) {
         FType *U_n = M->U[n];
         IType dim_n = dims[n];
@@ -176,12 +176,12 @@ static void GenerateRandomModel(PoissonGenerator *pg, KruskalModel *M)
             }
         }
     }
-    
+
     // lambda is random number from [0 1]
     UniformRandom(rank, 0.0, 1.0, M->lambda);
-    
+
     // normalize
-    KruskalModelNormalize(M);      
+    KruskalModelNormalize(M);
     FType tmp = 0.0;
     for (IType i = 0; i < rank; i++) {
         tmp += M->lambda[i];
@@ -193,7 +193,7 @@ static void GenerateRandomModel(PoissonGenerator *pg, KruskalModel *M)
     }
 
     AlignedFree(perm);
-    AlignedFree(vals);    
+    AlignedFree(vals);
 }
 
 
@@ -229,7 +229,7 @@ static void GenerateEdges(PoissonGenerator *pg, KruskalModel *M,
     assert(work != NULL);
     memset(r_count, 0, sizeof(IType) * rank);
     ProbCount(rank, bins, num_edges, r_count, work, BSIZE);
-    
+
     IType *eidx = (IType *)AlignedMalloc(sizeof(IType) * mode * num_edges);
     assert(eidx != NULL);
     // for each component
@@ -294,7 +294,7 @@ static void ConstructCIdx(int mode, IType *dims, IType num_edges, IType *eidx,
             IType pos = offset[idx];
             memcpy(&(cidx_new[pos * mode]), &(cidx_old[i * mode]),
                    sizeof(IType) * mode);
-            offset[idx] += 1;            
+            offset[idx] += 1;
         }
         IType *tmp = cidx_new;
         cidx_new = cidx_old;
@@ -306,7 +306,7 @@ static void ConstructCIdx(int mode, IType *dims, IType num_edges, IType *eidx,
 
     // find the same points
     memcpy(eidx, cidx_tmp, sizeof(IType) * mode);
-    vals[0] = 1.0;    
+    vals[0] = 1.0;
     IType nnz = 1;
     for (IType i = 1; i < num_edges; i++) {
         bool dup = true;
@@ -337,7 +337,7 @@ void PoissonGeneratorRun(PoissonGenerator *pg, IType num_edges, IType rank,
                          KruskalModel **M_, SparseTensor **X_)
 {
     int mode = pg->mode;
-    IType *dims = pg->dims;   
+    IType *dims = pg->dims;
     for (int n = 0; n < mode; n++) {
         assert(dims[n] >= rank);
     }
@@ -348,7 +348,7 @@ void PoissonGeneratorRun(PoissonGenerator *pg, IType num_edges, IType rank,
     }
     printf("%llu, rank = %llu ...\n",
         (unsigned long long)dims[mode - 1], (unsigned long long)rank);
-    
+
     // create a random Kruskal model
     KruskalModel *M;
     CreateKruskalModel(mode, dims, rank, &M);
@@ -365,12 +365,12 @@ void PoissonGeneratorRun(PoissonGenerator *pg, IType num_edges, IType rank,
 
     SparseTensor *X;
     CreateSparseTensor((IType) mode, dims, nnz, eidx, vals, &X);
-    
+
     printf("    Nonzeros = %llu\n", (unsigned long long)nnz);
     AlignedFree(eidx);
     AlignedFree(vals);
 
-    // crate a sparse tensor    
+    // create a sparse tensor
     *M_ = M;
     *X_ = X;
 }

@@ -8,6 +8,22 @@
 
 #include "kruskal_model.hpp"
 
+void update_gram(FType* gram, KruskalModel* M, int mode)
+{
+  MKL_INT m = M->dims[mode];
+  MKL_INT n = M->rank;
+  MKL_INT lda = n;
+  MKL_INT ldc = n;
+  FType alpha = 1.0;
+  FType beta = 0.0;
+
+  CBLAS_ORDER layout = CblasRowMajor;
+  CBLAS_UPLO uplo = CblasLower;
+  CBLAS_TRANSPOSE trans = CblasTrans;
+  SYRK(layout, uplo, trans, n, m, alpha, M->U[mode], lda, beta, gram, ldc);
+}
+
+
 void ExportKruskalModel(KruskalModel *M, char *file_path)
 {
     // factor matrices
@@ -69,14 +85,14 @@ void CreateKruskalModel(int mode, IType *dims, IType rank, KruskalModel **M_)
         assert(dims[n] >= 1);
         //assert(rank <= dims[n]);
     }
-    
+
     KruskalModel *M = (KruskalModel *)AlignedMalloc(sizeof(KruskalModel));
     assert(M != NULL);
     M->mode = mode;
     M->rank = rank;
     M->dims = (IType *)AlignedMalloc(mode * sizeof(IType));
     assert(M->dims != NULL);
-    memcpy(M->dims, dims, sizeof(IType) * mode);  
+    memcpy(M->dims, dims, sizeof(IType) * mode);
     M->U = (FType **)AlignedMalloc(mode * sizeof(FType *));
     assert(M->U != NULL);
     for (int n = 0; n < mode; n++) {
@@ -97,14 +113,13 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
     }
 
     srand(seed);
+
     for (int n = 0; n < M->mode; n++) {
-        #pragma omp parallel
-        {
-            unsigned int local_seed = seed + omp_get_thread_num();
-            #pragma omp for simd schedule(static)
-            for (IType i = 0; i < M->dims[n] * M->rank; i++) {
-                M->U[n][i] = (FType) rand_r (&local_seed) / RAND_MAX;
-            }
+        //#pragma omp parallel for simd
+        for (IType i = 0; i < M->dims[n] * M->rank; i++) {
+            // M->U[n][i] = (FType) 1.0;
+            // M->U[n][i] = (FType) 0.000000001;
+            M->U[n][i] = (FType) rand() / RAND_MAX;
         }
     }
 }
@@ -112,31 +127,98 @@ void KruskalModelRandomInit(KruskalModel *M, unsigned int seed)
 
 void KruskalModelNormalize(KruskalModel *M)
 {
+    IType rank = M->rank;
+    FType * col_norm = (FType *) AlignedMalloc(sizeof(FType) * rank);
+
     for (int n = 0; n < M->mode; n++) {
         // For each factor
         IType dim = M->dims[n];
-        for (IType j = 0; j < M->rank; j++) {
-            // Calculate the norm for this column
-            FType tmp = 0.0;
-            for (IType k = 0; k < dim; k++) {
+        FType *U = M->U[n];
+
+        #pragma omp simd
+        for (IType j = 0; j < rank; ++j) {
+            col_norm[j] = 0.0;
+        }
+
+        // Calculate the norm for this column
+        #pragma omp parallel for schedule(static) reduction(+: col_norm[:rank])
+        for (IType i = 0; i < dim; i++) {
+            #pragma omp simd
+            for(IType j = 0; j < rank; j++) {
                 #if ROW
-                tmp = tmp + fabs(M->U[n][k * M->rank + j]);
+                col_norm[j] += fabs(U[i * rank + j]);
                 #else
-                tmp = tmp + fabs(M->U[n][j * dim + k]);
+                col_norm[j] += fabs(U[j * dim + i]);
                 #endif
             }
-            // Normalize the elements 
-            for (IType k = 0; k < dim; k++) {
+        }
+
+        // Normalize the elements
+        #pragma omp parallel for schedule(static)
+        for (IType i = 0; i < dim; i++) {
+            #pragma omp simd
+            for(IType j = 0; j < rank; j++) {
                 #if ROW
-                M->U[n][k * M->rank + j] = M->U[n][k * M->rank + j] / tmp;
+                U[i * rank + j] /=  col_norm[j];
                 #else
-                M->U[n][j * dim + k] = M->U[n][j * dim + k] / tmp;
+                U[j * dim + i] /=  col_norm[j];
                 #endif
             }
+        }
+
+        #pragma omp simd
+        for (IType j = 0; j < rank; j++) {
             // Absorb the norm into lambda
-            M->lambda[j] = M->lambda[j] * tmp;
+            M->lambda[j] *= col_norm[j];
         }
     }
+    free(col_norm);
+}
+
+void KruskalModelNormalizeMode(KruskalModel *M, int n)
+{
+    IType rank = M->rank;
+    IType dim = M->dims[n];
+    FType *U = M->U[n];
+    FType * col_norm = (FType *) AlignedMalloc(sizeof(FType) * rank);
+
+    #pragma omp simd
+    for (IType j = 0; j < rank; ++j) {
+        col_norm[j] = 0.0;
+    }
+
+    // Calculate the norm for this column
+    #pragma omp parallel for schedule(static) reduction(+: col_norm[:rank])
+    for (IType i = 0; i < dim; i++) {
+        #pragma omp simd
+        for(IType j = 0; j < rank; j++) {
+            #if ROW
+            col_norm[j] += fabs(U[i * rank + j]);
+            #else
+            col_norm[j] += fabs(U[j * dim + i]);
+            #endif
+        }
+    }
+
+    // Normalize the elements
+    #pragma omp parallel for schedule(static)
+    for (IType i = 0; i < dim; i++) {
+        #pragma omp simd
+        for(IType j = 0; j < rank; j++) {
+            #if ROW
+            U[i * rank + j] /=  col_norm[j];
+            #else
+            U[j * dim + i] /=  col_norm[j];
+            #endif
+        }
+    }
+
+    #pragma omp simd
+    for (IType j = 0; j < rank; j++) {
+        // Absorb the norm into lambda
+        M->lambda[j] *= col_norm[j];
+    }
+    free(col_norm);
 }
 
 static void inline Mat2Norm(IType dim, IType rank, FType * vals, FType * lambda, FType ** scratchpad)
@@ -148,7 +230,7 @@ static void inline Mat2Norm(IType dim, IType rank, FType * vals, FType * lambda,
          IType tid = omp_get_thread_num();
          FType * _lambda = scratchpad[tid];
 
-        #pragma omp for schedule(static) 
+        #pragma omp for schedule(static)
         for(IType i = 0; i < dim; i++) {
             #pragma omp simd
             for(IType j = 0; j < rank; j++) {
@@ -190,7 +272,7 @@ static void inline MatMaxNorm(IType dim, IType rank, FType * vals, FType * lambd
          IType tid = omp_get_thread_num();
          FType * _lambda = scratchpad[tid];
 
-        #pragma omp for schedule(static) 
+        #pragma omp for schedule(static)
         for(IType i = 0; i < dim; i++) {
             #pragma omp simd
             for(IType j = 0; j < rank; j++) {
@@ -201,7 +283,7 @@ static void inline MatMaxNorm(IType dim, IType rank, FType * vals, FType * lambd
         // If any entry is less than 1, set it to 1
         #pragma omp simd
         for(IType i = 0; i < rank; i++) {
-            _lambda[i] = std::max(_lambda[i], 1.);
+            _lambda[i] = std::max(_lambda[i], (FType)1.);
         }
 
         #pragma omp for reduction(max: lambda[:rank]) schedule(static)
@@ -277,15 +359,21 @@ void RedistributeLambda (KruskalModel *M, int n)
     FType *lambda = M->lambda;
     IType dim = M->dims[n];
 
-    for(IType r = 0; r < rank; r++) {
-        for(IType i = 0; i < dim; i++) {
+    #pragma omp parallel for schedule(static)
+    for(IType i = 0; i < dim; i++) {
+        #pragma omp simd
+        for(IType j = 0; j < rank; j++) {
             #if ROW
-            U[i * rank + r] = U[i * rank + r] * lambda[r];
+            U[i * rank + j] *= lambda[j];
             #else
-            U[r * dim + i] = U[r * dim + i] * lambda[r];
+            U[j * dim + i] *= lambda[j];
             #endif
         }
-        lambda[r] = 1.0;
+    }
+
+    #pragma omp simd
+    for(IType j = 0; j < rank; j++) {
+        lambda[j] = 1.0;
     }
 }
 

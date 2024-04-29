@@ -4,11 +4,11 @@ LINKER   = $(CC)
 OPENMP   = -qopenmp
 ifeq ($(BLAS_LIBRARY),MKL)
 BLASLFLAGS 	= -mkl=parallel
-INCLUDFLAGS	= 
+INCLUDEFLAGS=
 BLASLIBS 	= -liomp5 -lpthread -lm -ldl #-lmkl_intel_lp64 #-lmkl_intel_thread
 else
 BLASLFLAGS 	= 
-INCLUDFLAGS	= 
+INCLUDEFLAGS=
 BLASLIBS 	= -lopenblas
 endif
 

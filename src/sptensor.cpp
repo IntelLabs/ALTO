@@ -75,7 +75,8 @@ void read_tns_dims(
   FILE* fin,
   IType* num_modes,
   IType* nnz,
-  IType** dims
+  IType** dims,
+  IType zero_based
 )
 {
   // count the number of modes
@@ -113,7 +114,7 @@ void read_tns_dims(
     if(nread > 1 && line[0] != '#') {
       char* ptr = line;
       for(IType i = 0; i < nmodes; i++) {
-        IType index = strtoull(ptr, &ptr, 10);
+        IType index = strtoull(ptr, &ptr, 10) + zero_based;
         if(index > tmp_dims[i]) {
           tmp_dims[i] = index;
         }
@@ -134,8 +135,9 @@ void read_tns_data(
   FILE* fin,
   SparseTensor* tensor,
   IType num_modes,
-  IType nnz)
-{
+  IType nnz,
+  IType one_based
+){
   IType tmp_nnz = 0;
   ssize_t nread;
   char* line = NULL;
@@ -146,7 +148,7 @@ void read_tns_data(
     if(nread > 1 && line[0] != '#') {
       char* ptr = line;
       for(IType i = 0; i < num_modes; i++) {
-        tensor->cidx[i][tmp_nnz] = (IType) strtoull(ptr, &ptr, 10) - 1;
+        tensor->cidx[i][tmp_nnz] = (IType) strtoull(ptr, &ptr, 10) - one_based;
       }
       tensor->vals[tmp_nnz] = (FType) strtod(ptr, &ptr);
       ++tmp_nnz;
@@ -162,11 +164,13 @@ void read_tns_data(
 void ImportSparseTensor(
   const char* file_path,
   FileFormat f,
-  SparseTensor** X_
+  SparseTensor** X_,
+  IType zero_based
 )
 {
   FILE* fp = fopen(file_path, "r");
   assert(fp != NULL);
+  IType one_based = zero_based ? 0 : 1;
 
   IType nnz = 0;
   IType nmodes = 0;
@@ -176,7 +180,7 @@ void ImportSparseTensor(
 
   if (f == TEXT_FORMAT) {
     // read dims and nnz info from file
-    read_tns_dims(fp, &nmodes, &nnz, &dims);
+    read_tns_dims(fp, &nmodes, &nnz, &dims, zero_based);
 
     // allocate memory to the data structures
     SparseTensor* ten = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));
@@ -199,7 +203,7 @@ void ImportSparseTensor(
         ten->dims[i] = dims[i];
     }
     ten->nnz = nnz;
-    read_tns_data(fp, ten, nmodes, nnz);
+    read_tns_data(fp, ten, nmodes, nnz, one_based);
 
     *X_ = ten;
 
