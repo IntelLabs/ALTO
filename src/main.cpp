@@ -126,7 +126,7 @@ int main(int argc, char** argv)
 	// Generating test tensor
 	double sparsity = 0.1;
 
-	int seed = time(NULL);
+	int seed = (int) time(NULL);
 	int save_to_file = 0;
     bool do_check = false;
     bool do_bench = false;
@@ -160,36 +160,42 @@ int main(int argc, char** argv)
 				model = APR;
             } else {
 				fprintf(stderr, "Invalid -model: %s.\n", optarg);
+			    return -1;
             }
 			break;
 		case 'r':
 			rank = (IType)atoll(optarg);
 			if (rank < 1) {
 				fprintf(stderr, "Invalid -rank: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'm':
 			max_iters = atoi(optarg);
-			if (max_iters < 0) {
+			if (max_iters <= 0) {
 				fprintf(stderr, "Invalid -max-iter: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'n':
 			max_inner = atoi(optarg);
-			if (max_iters < 0) {
+			if (max_iters <= 0) {
 				fprintf(stderr, "Invalid -max-inner: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'x':
 			seed = atoi(optarg);
 			if (seed < 0) {
 				fprintf(stderr, "Invalid -seed: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'd':
 			dims = ParseDimensions(optarg, &nmodes);
-                        if (dims.empty()) {
+            if (dims.empty()) {
 				fprintf(stderr, "Invalid -dims: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 't':
@@ -203,18 +209,21 @@ int main(int argc, char** argv)
 			sparsity = atof(optarg);
 			if (sparsity <= 0.0) {
 				fprintf(stderr, "Invalid -sparsity: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'e':
 			epsilon = atof(optarg);
 			if (epsilon <= 0.0) {
 				fprintf(stderr, "Invalid -epsilon: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'f':
 			save_to_file = atoi(optarg);
 			if (save_to_file < 0) {
 				fprintf(stderr, "Invalid -file: %s.\n", optarg);
+			    return -1;
 			}
 			break;
         case 'z':
@@ -486,10 +495,6 @@ void BenchmarkAlto(SparseTensor* X, Model model, int max_iters, int max_inner, F
 	    }
 	    wtime = omp_get_wtime() - wtime_s;
 	    printf("ALTO runtime:   %f\n", wtime);
-		for(int m = 0; m < AT->nmode; m++) {
-			AlignedFree(factors[m]);
-		}
-		AlignedFree(factors);
 	    destroy_da_mem(AT, ofibs, rank, target_mode);
     }
 #ifdef memtrace
@@ -500,6 +505,10 @@ void BenchmarkAlto(SparseTensor* X, Model model, int max_iters, int max_inner, F
 #endif
 	// ---------------------------------------------------------------- //
 	// Cleanup
+    for(int m = 0; m < AT->nmode; m++) {
+	    AlignedFree(factors[m]);
+	}
+	AlignedFree(factors);
     if (model == APR) {
         DestroyKruskalModel(M);
         // DestroySparseTensor(X);
@@ -674,10 +683,9 @@ static std::vector<IType> ParseDimensions(char* argv, int* nmodes_)
 	while (end != std::string::npos) {
 		end = dstr.find(',', pos);
 
-                auto count = end == std::string::npos ? end : end - pos;
+        auto count = end == std::string::npos ? end : end - pos;
 		IType d = (IType)stoll(dstr.substr(pos, count));
-		if (d >= 0)
-			dims.push_back(d);
+		dims.push_back(d);
 		pos = end + 1;
 	}
 

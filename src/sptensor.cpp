@@ -208,29 +208,35 @@ void ImportSparseTensor(
     *X_ = ten;
 
   } else if (f == BINARY_FORMAT) {
+    IType numobjs = 0;
     // first read the number of modes
     nmodes = 0;
-    fread(&nmodes, sizeof(IType), 1, fp);
+    numobjs = (IType) fread(&nmodes, sizeof(IType), 1, fp);
     assert(nmodes <= MAX_NUM_MODES);
+    assert(numobjs == (IType) 1);
 
     // use this information to read the dimensions of the tensor
     IType* dims = (IType*) AlignedMalloc(sizeof(IType) * nmodes);
     assert(dims);
-    fread(dims, sizeof(IType), nmodes, fp);
+    numobjs = (IType) fread(dims, sizeof(IType), nmodes, fp);
+    assert(numobjs == nmodes);
     // read the nnz
     nnz = 0;
-    fread(&nnz, sizeof(IType), 1, fp);
+    numobjs = (IType) fread(&nnz, sizeof(IType), 1, fp);
+    assert(numobjs = (IType) 1);
     // use this information to read the index and the values
     IType** cidx = (IType**) AlignedMalloc(sizeof(IType*) * nmodes);
     assert(cidx);
     for(IType i = 0; i < nmodes; i++) {
         cidx[i] = (IType*) AlignedMalloc(sizeof(IType) * nnz);
         assert(cidx[i]);
-        fread(cidx[i], sizeof(IType), nnz, fp);
+        numobjs = (IType) fread(cidx[i], sizeof(IType), nnz, fp);
+        assert(numobjs == nnz);
     }
     FType* vals = (FType*) malloc(sizeof(FType) * nnz);
     assert(vals);
-    fread(vals, sizeof(FType), nnz, fp);
+    numobjs = (IType) fread(vals, sizeof(FType), nnz, fp);
+    assert(numobjs == nnz);
 
     // create the sptensor
     SparseTensor* ten = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));

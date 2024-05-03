@@ -381,7 +381,7 @@ double cpd_fit(SparseTensor* X, KruskalModel* M, FType** grams, FType* U_mttkrp)
 
   FType* accum = (FType*) AlignedMalloc(sizeof(FType) * rank);
   assert(accum);
-  memset(accum, 0, sizeof(FType*) * rank);
+  memset(accum, 0, sizeof(FType) * rank);
   #if 0
   for(IType i = 0; i < dims[nmodes - 1]; i++) {
     for(IType j = 0; j < rank; j++) {
@@ -632,7 +632,7 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
     GELSY(&_rank, &_rank, &I, grams[mode], &_rank, M->U[mode], &_rank,
           jpvt, &rcond, &ret_rank, work, &lwork, &info_dgelsy);
 
-    fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, info_dgelsy, ret_rank);
+    fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, (int) info_dgelsy, (int) ret_rank);
     free(work);
     free(jpvt);
   }
