@@ -1,3 +1,9 @@
+# DISCONTINUATION OF PROJECT #  
+This project will no longer be maintained by Intel.  
+Intel has ceased development and contributions including, but not limited to, maintenance, bug fixes, new releases, or updates, to this project.  
+Intel no longer accepts patches to this project.  
+ If you have an ongoing need to use this project, are interested in independently developing it, or would like to maintain patches for the open source software community, please create your own fork of this project.  
+  
 # ALTO
 ALTO is a template-based implementation of the Adaptive Linearized Tensor Order format for storing and processing sparse tensors. It performs key tensor decomposition operations along every mode (dimension) using a unified approach that works on a single tensor copy. The current implementation supports multi-core processors and it allows effortless specialization of tensor kernels not only for common tensor orders, but also for typical application features (such as the decomposition rank). The detailed algorithms are described in the following paper:
 * **ALTO: Adaptive Linearized Storage of Sparse Tensors**. Ahmed E. Helal, Jan Laukemann, Fabio Checconi, Jesmin Jahan Tithi, Teresa M. Ranadive, Fabrizio Petrini, Jeewhan Choi. In Proceedings of the ACM International Conference on Supercomputing (ICS), June 2021. [doi:10.1145/3447818.3461703](https://doi.org/10.1145/3447818.3461703). 
