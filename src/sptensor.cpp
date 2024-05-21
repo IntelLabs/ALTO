@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include <math.h>
 #include <assert.h>
 #include <time.h>
@@ -223,7 +224,13 @@ void ImportSparseTensor(
     // read the nnz
     nnz = 0;
     numobjs = (IType) fread(&nnz, sizeof(IType), 1, fp);
-    assert(numobjs = (IType) 1);
+    assert(numobjs == (IType) 1);
+    assert(nnz > 0);
+#ifdef IDX_TYPE32
+    assert(nnz <= UINT_MAX);
+#else
+    assert(nnz <= ULLONG_MAX);
+#endif
     // use this information to read the index and the values
     IType** cidx = (IType**) AlignedMalloc(sizeof(IType*) * nmodes);
     assert(cidx);

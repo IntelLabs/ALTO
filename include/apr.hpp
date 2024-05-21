@@ -1285,6 +1285,9 @@ cp_apr_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, int max_inner_i
     }
     AlignedFree(Phi);
     if (needPhiPrecomp) AlignedFree(AT->precomp_row);
+    AlignedFree(kktModeViolations);
+    destroy_da_mem(AT, ofibs, rank, -1);
+    AlignedFree(nViolations);
 
     wtime_s = omp_get_wtime();
     // Calculate the Log likelihood fit
@@ -1292,6 +1295,7 @@ cp_apr_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, int max_inner_i
     for (int i = 0; i < iter; i++) {
         nTotalInner += nInnerIters[i];
     }
+    assert(nTotalInner > 0);
     FType obj = tt_logLikelihood(AT, M, eps_div_zero);
 
     // Calculate the Gram matrices of the factor matrices and
@@ -1359,12 +1363,16 @@ cp_apr_alto(AltoTensor<LIT>* AT, KruskalModel* M, int max_iters, int max_inner_i
             modeTimes[0], nmodes > 1 ? modeTimes[1] : 0, nmodes > 2 ? modeTimes[2] : 0, nmodes > 3 ? modeTimes[3] : 0,
             nmodes > 4 ? modeTimes[4] : 0, (wtime_pre + wtime_apr + wtime_post)/nTotalInner);
 
-    // for (int n = 0; n < nmodes; n++) {
-    //     AlignedFree(Phi[n]);
-    // }
-    // AlignedFree(Phi);
-
-    // if (needPhiPrecomp) AlignedFree(AT->precomp_row);
+    AlignedFree(modeTimes);
+    AlignedFree(nInnerItersPerMode);
+    AlignedFree(modePhiTimes);
+    AlignedFree(kktViolations);
+    AlignedFree(nInnerIters);
+    AlignedFree(tmp_mttkrp);
+    for (int n = 0; n < nmodes; n++) {
+        AlignedFree(tmp_grams[n]);
+    }
+    AlignedFree(tmp_grams);
 }
 
 #endif // APR_HPP_

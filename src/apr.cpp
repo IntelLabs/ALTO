@@ -168,6 +168,7 @@ FType tt_logLikelihood(SparseTensor* X, KruskalModel* M, FType eps_div_zero)
 		}
 		lambda[r] = lambda[r] * temp;
 	}
+    AlignedFree(A);
 
 	return (logSum - factorSum);
 }
@@ -424,6 +425,7 @@ void cp_apr_mu_alto(SparseTensor* X, KruskalModel* M, int max_iters, int max_inn
 	if(iter == max_iters) {
 		iter = max_iters - 1;
 	}
+    assert(iter < max_iters);
 	for(int i = 0; i < iter + 1; i++) {
 		nTotalInner += nInnerIters[i];
 	}
@@ -470,6 +472,18 @@ void cp_apr_mu_alto(SparseTensor* X, KruskalModel* M, int max_iters, int max_inn
 	fprintf(stdout, ">%f,%f,%f,%f,%f,%d,%d,%e,%e\n",
 			wtime_pre, wtime_apr, wtime_apr_pi, wtime_apr_phi, wtime_post,
 			iter, nTotalInner, obj, fit);
+    AlignedFree(nInnerIters);
+    AlignedFree(nViolations);
+    AlignedFree(kktModeViolations);
+    AlignedFree(kktViolations);
+    AlignedFree(tmp_mttkrp);
+	AlignedFree(Pi);
+	for(int n = 0; n < nmodes; n++) {
+		AlignedFree(tmp_grams[n]);
+		AlignedFree(Phi[n]);
+    }
+    AlignedFree(tmp_grams);
+	AlignedFree(Phi);
 
 }
 
@@ -704,6 +718,7 @@ void cp_apr_mu_alto_otf(SparseTensor* X, KruskalModel* M, int max_iters, int max
 	if(iter == max_iters) {
 		iter = max_iters - 1;
 	}
+    assert(iter < max_iters);
 	for(int i = 0; i < iter + 1; i++) {
 		nTotalInner += nInnerIters[i];
 	}
@@ -750,6 +765,17 @@ void cp_apr_mu_alto_otf(SparseTensor* X, KruskalModel* M, int max_iters, int max
     fprintf(stdout, ">,%f,%f,%.2f,%f,%f,%d,%d,%e,%e\n",
             wtime_pre, wtime_apr, 0.0, wtime_apr_phi, wtime_post,
             iter, nTotalInner, obj, fit);
+    AlignedFree(nInnerIters);
+    AlignedFree(nViolations);
+    AlignedFree(kktModeViolations);
+    AlignedFree(kktViolations);
+    AlignedFree(tmp_mttkrp);
+	for(int n = 0; n < nmodes; n++) {
+		AlignedFree(tmp_grams[n]);
+		AlignedFree(Phi[n]);
+    }
+    AlignedFree(tmp_grams);
+	AlignedFree(Phi);
 }
 
 /*
