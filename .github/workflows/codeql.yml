@@ -86,7 +86,7 @@ jobs:
         # echo '  make bootstrap'
         # echo '  make release'
         # exit 1
-        echo '  make COMPILER=gcc'
+        echo '  make COMPILER=GCC'
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
