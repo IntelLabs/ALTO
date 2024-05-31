@@ -631,8 +631,7 @@ static void pseudo_inverse(FType** grams, KruskalModel* M, IType mode)
     FType* work = (FType*) AlignedMalloc(sizeof(FType) * work_qr);
     GELSY(&_rank, &_rank, &I, grams[mode], &_rank, M->U[mode], &_rank,
           jpvt, &rcond, &ret_rank, work, &lwork, &info_dgelsy);
-
-    fprintf(stderr, "\t Mode %llu Min Norm Solve: %d\nDGELSS effective rank: %d\n", mode, (int) info_dgelsy, (int) ret_rank);
+    fprintf(stderr, "\t Mode %llu Min Norm Solve: %llu\nDGELSS effective rank: %llu\n", mode, info_dgelsy, ret_rank);
     free(work);
     free(jpvt);
   }
