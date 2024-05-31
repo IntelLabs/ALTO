@@ -141,7 +141,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     _at->prtn_ptr = (IType*)AlignedMalloc((nprtn + 1) * sizeof(IType));
     assert(_at->prtn_ptr);
 
-    _at->prtn_intervals = (Interval*)AlignedMalloc(nprtn * nmode * sizeof(Interval));
+    _at->prtn_intervals = (Interval*)AlignedMalloc(static_cast<IType>(nprtn) * static_cast<IType>(nmode) * sizeof(Interval));
     assert(_at->prtn_intervals);
 
     _at->cr_masks = (LIT*)AlignedMalloc(nmode * sizeof(LIT));
