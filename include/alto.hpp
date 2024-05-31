@@ -36,12 +36,15 @@ struct AltoTensor {
     int *mode_pos;              // starting point for each mode mask (nmode)
 #endif
     LIT *idx;                   // ALTO index
-    FType *vals;                // nonzeros
+    ValType *vals;              // nonzeros
 
     IType *prtn_ptr;            // pointer to children nnzs
     Interval *prtn_intervals;   // ALTO partition/subspace intervals (nprtn*nmode)
     LIT alto_cr_mask;
     LIT *cr_masks;              // optional conflict resolution masks (nmode)
+    FType * precomp_row;        // buffer for APR precomputations
+    bool is_oidx;               // is oidx data available?
+    IType **oidx;               // oidx data for each mode
 
 #ifdef OPT_ALTO
     LPType *prtn_id;           // ALTO partition/subspace id
@@ -49,6 +52,7 @@ struct AltoTensor {
     LPType *prtn_mode_masks;   // ALTO partition/subspace gather/scatter masks (nprtn*nmode)
 #endif
 };
+
 
 //Adaptive Linearized Tensor Order (ALTO) APIs
 template <typename LIT>
@@ -69,7 +73,7 @@ static inline void unmap_da_mem(AltoTensor<LIT> *at, FType **ofibs, IType rank, 
 template <typename LIT>
 static inline void evaluate_delinearization(AltoTensor<LIT> *at);
 
-template <typename LIT> 
+template <typename LIT>
 void mttkrp_alto(int target_mode, FType **factors, IType rank, AltoTensor<LIT> *at) __attribute__((noinline));
 
 template <typename LIT>
@@ -118,6 +122,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     _at->nmode = nmode;
     _at->nprtn = nprtn;
     _at->nnz = nnz;
+    _at->is_oidx = false;
 
     _at->dims = (IType*)AlignedMalloc(nmode * sizeof(IType));
     assert(_at->dims);
@@ -131,11 +136,11 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     _at->mode_pos = (int*)AlignedMalloc(nmode * sizeof(int));
     assert(_at->mode_pos);
 #endif
-    
+
     _at->idx = (LIT*)AlignedMalloc(nnz * sizeof(LIT));
     assert(_at->idx);
 
-    _at->vals = (FType*)AlignedMalloc(nnz * sizeof(FType));
+    _at->vals = (ValType*)AlignedMalloc(nnz * sizeof(ValType));
     assert(_at->vals);
 
     _at->prtn_ptr = (IType*)AlignedMalloc((nprtn + 1) * sizeof(IType));
@@ -182,7 +187,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     for (IType i = 0; i < nnz; i++) {
         LIT alto = 0;
 
-        _at->vals[i] = spt->vals[i];
+        _at->vals[i] = (ValType)spt->vals[i];
         for (int j = 0; j < nmode; j++) {
             alto |= pdep(spt->cidx[j][i], ALTO_MASKS[j]);
         }
@@ -198,7 +203,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     wtime = omp_get_wtime() - wtime_s;
     printf("ALTO: Linearization time = %f (s)\n", wtime);
 
-    //Sort the nonzeros based on their line position.  
+    //Sort the nonzeros based on their line position.
     wtime_s = omp_get_wtime();
     sort_alto(_at);
     wtime = omp_get_wtime() - wtime_s;
@@ -212,7 +217,7 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     for (int n = 0; n < nmode; ++n) {
         ALTO_POS[n] = _at->mode_pos[n];
     }
-    
+
     wtime_s = omp_get_wtime();
     #pragma omp parallel for schedule(static)
     for (IType i = 0; i < nnz; i++) {
@@ -237,6 +242,47 @@ create_alto(SparseTensor* spt, AltoTensor<LIT>** at, int nprtn)
     }
 #endif
 #endif
+
+    wtime_s = omp_get_wtime();
+    //Generate oidx data if needed.
+    for (int n = 0; n < nmode; ++n) {
+        IType fib_reuse = _at->nnz / _at->dims[n];
+        printf("ALTO: fib_reuse[%d]=%llu\n", n, fib_reuse);
+        if (fib_reuse <= MIN_FIBER_REUSE) {
+            _at->is_oidx = true;
+            break;
+        }
+    }//modes
+
+    if (_at->is_oidx) {
+        printf("Tensor requires output-oriented traversal.\n");
+        _at->oidx = (IType**) AlignedMalloc(nmode * sizeof(IType*));
+        assert(_at->oidx);
+        double oidx_storage = 0;
+        for (int n = 0; n < nmode; ++n) {
+            IType fib_reuse = _at->nnz / _at->dims[n];
+            if (fib_reuse <= MIN_FIBER_REUSE) {
+                _at->oidx[n] = (IType*) AlignedMalloc(nnz * sizeof(IType));
+                assert(_at->oidx[n]);
+                oidx_storage += nnz * sizeof(IType);
+                #pragma omp parallel for
+                for (IType i = 0; i < nnz; ++i) {
+                    _at->oidx[n][i] = i;
+                }
+ #ifndef ALT_PEXT
+                std::sort(_at->oidx[n], (_at->oidx[n]) + nnz, [&](IType x, IType y) {
+                    return (pext(_at->idx[x], ALTO_MASKS[n]) < pext(_at->idx[y], ALTO_MASKS[n]));});
+#else
+                std::sort(_at->oidx[n], (_at->oidx[n]) + nnz, [&](IType x, IType y) {
+                    return (pext(_at->idx[x], ALTO_MASKS[n], _at->mode_pos[n]) < pext(_at->idx[y], ALTO_MASKS[n], _at->mode_pos[n]));});
+#endif
+
+            } else _at->oidx[n] = NULL;
+        }//modes
+        printf("Auxiliary format storage:    %g Bytes\n", oidx_storage);
+    }
+    wtime = omp_get_wtime() - wtime_s;
+    printf("ALTO: oidx time = %f (s)\n", wtime);
 
     //Workload partitioning
     wtime_s = omp_get_wtime();
@@ -266,6 +312,12 @@ destroy_alto(AltoTensor<LIT>* at)
     AlignedFree(at->prtn_mask);
     AlignedFree(at->prtn_mode_masks);
 #endif
+    if (at->is_oidx) {
+        for (int n = 0; n < at->nmode; ++n) {
+            AlignedFree(at->oidx[n]);
+        }
+        AlignedFree(at->oidx);
+    }
     AlignedFree(at);
 }
 
@@ -285,7 +337,8 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
 
     {
         double total_storage = 0.0;
-        #pragma omp parallel for reduction(+: total_storage) proc_bind(close)
+        uint64_t total_fibs = 0;
+        #pragma omp parallel for reduction(+: total_storage) reduction(+:total_fibs) proc_bind(close)
         for (int p = 0; p < nprtn; p++) {
             IType num_fibs = 0;
             if (target_mode == -1) {
@@ -320,8 +373,9 @@ create_da_mem(int target_mode, IType rank, AltoTensor<LIT>* at, FType*** ofibs)
                 _ofibs[p] = NULL;
             //printf("p%d: storage=%f MB\n", p, ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0));
             total_storage += ((double) num_fibs * rank * sizeof(FType)) / (1024.0*1024.0);
+            total_fibs += num_fibs;
         } // nprtn
-        printf("ofibs storage/prtn: %f MB\n", total_storage/(double)nprtn);
+        printf("ofibs storage: %f MB, storage/prtn: %f MB, num fibs: %lu\n", total_storage, total_storage/(double)nprtn, total_fibs);
     } // omp parallel
     *ofibs = _ofibs;
 }
@@ -407,13 +461,13 @@ void mttkrp_alto(int target_mode, FType** factors, IType rank, AltoTensor<LIT>* 
     IType const nnz = at->nnz;
 
     LIT* idx = at->idx;
-    FType* vals = at->vals;
+    ValType* vals = at->vals;
 
 #ifdef ALTO_MEM_TRACE
     FILE* trace_file = fopen("mem_trace.txt", "w");
     assert(trace_file);
 #endif
-    
+
     //local buffer
     LIT ALTO_MASKS[MAX_NUM_MODES];
     #pragma omp simd
@@ -433,7 +487,7 @@ void mttkrp_alto(int target_mode, FType** factors, IType rank, AltoTensor<LIT>* 
             fprintf(trace_file, "%llu\n", mem_add);
         }
 #endif
-        FType const val = vals[i];
+        ValType const val = vals[i];
 #ifdef ALTO_MEM_TRACE
         {
             AddType mem_add = (AddType) & (vals[i]);
@@ -443,7 +497,7 @@ void mttkrp_alto(int target_mode, FType** factors, IType rank, AltoTensor<LIT>* 
 
         #pragma omp simd
         for (IType r = 0; r < rank; ++r) {
-            row[r] = val;
+            row[r] = (FType) val;
         }
 
         for (int m = 0; m < nmode; ++m) {
@@ -498,6 +552,9 @@ struct mttkrp_alto_rank_specializer<LIT, MT, 0>
     operator()(int target_mode, IType fib_reuse, FType** factors, IType rank, AltoTensor<LIT>* at, omp_lock_t* wlocks, FType** ofibs, MT nmodes)
     {
         if (fib_reuse <= MIN_FIBER_REUSE) {
+            // Use op_sched only if oidx is available
+            if (at->is_oidx)
+                return mttkrp_alto_op_sched(target_mode, factors, at, nmodes, rank);
             if (at->cr_masks[target_mode])
                 return mttkrp_alto_atomic_cr(target_mode, factors, at, nmodes, rank);
             return mttkrp_alto_atomic(target_mode, factors, at, nmodes, rank);
@@ -516,6 +573,9 @@ struct mttkrp_alto_rank_specializer<LIT, MT, 0, Head, Tail...>
         if (rank == Head) {
             using const_rank = std::integral_constant<IType, Head>;
             if (fib_reuse <= MIN_FIBER_REUSE) {
+                // Use op_sched only if oidx is available
+                if (at->is_oidx)
+                    return mttkrp_alto_op_sched(target_mode, factors, at, nmodes, const_rank());
                 if (at->cr_masks[target_mode])
                     return mttkrp_alto_atomic_cr(target_mode, factors, at, nmodes, const_rank());
                 return mttkrp_alto_atomic(target_mode, factors, at, nmodes, const_rank());
@@ -596,7 +656,7 @@ setup_alto(AltoTensor<LIT>* at)
     printf("alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
 #ifdef ALTO_DEBUG
     printf("alto_mask = 0x%llx\n", alto_mask);
-#endif    
+#endif
 
     assert(alto_bits_max <= ((int)sizeof(LIT) * 8));
 }
@@ -617,7 +677,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
     int alto_bits_min = 0, alto_bits_max = 0;
     LIT alto_mask = 0;
     int max_num_bits = 0, min_num_bits = sizeof(IType) * 8;
-    
+
     MPair* mode_bits = (MPair*)AlignedMalloc(nmode * sizeof(MPair));
     assert(mode_bits);
 
@@ -631,7 +691,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         min_num_bits = std::min(min_num_bits, mbits);
         printf("num_bits for mode-%d=%d\n", n + 1, mbits);
     }
-    
+
 #ifdef ALT_PEXT
     //Simple prefix sum
     at->mode_pos[0] = 0;
@@ -639,7 +699,9 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
         at->mode_pos[n] = at->mode_pos[n-1] + mode_bits[n-1].bits;
     }
 #endif
-    
+
+    printf("Ordinal Type:        int%lu\n", 8*sizeof(IType));
+    printf("Sparse Value Type:   %s%lu\n", typeid(ValType) == typeid(double) || typeid(ValType) == typeid(float) ? "FP" : "int", 8*sizeof(ValType));
     alto_bits_max = max_num_bits * nmode;
     //printf("range of mode bits=[%d %d]\n", min_num_bits, max_num_bits);
     printf("alto_bits_min=%d, alto_bits_max=%d\n", alto_bits_min, alto_bits_max);
@@ -648,19 +710,19 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
 
     //Assuming we use a power-2 data type for ALTO_idx with a minimum size of a byte
     //int alto_bits = pow(2, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
-    int alto_bits = (int)0x1 << std::max<int>(3, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
-    printf("alto_bits=%d\n", alto_bits);
+    // int alto_bits = (int)0x1 << std::max<int>(3, (sizeof(int) * 8) - __builtin_clz(alto_bits_min));
+    // printf("alto_bits=%d\n", alto_bits);
 
     double alto_storage = 0;
-    alto_storage = at->nnz * (sizeof(FType) + sizeof(LIT));
+    alto_storage = at->nnz * (sizeof(ValType) + sizeof(LIT));
     printf("Alto format storage:    %g Bytes\n", alto_storage);
-    
-    alto_storage = at->nnz * (sizeof(FType) + (alto_bits >> 3));
-    printf("Alto-power-2 format storage:    %g Bytes\n", alto_storage);
 
-    alto_storage = at->nnz * (sizeof(FType) + (alto_bits_min >> 3));
+    // alto_storage = at->nnz * (sizeof(ValType) + (alto_bits >> 3));
+    // printf("Alto-power-2 format storage:    %g Bytes\n", alto_storage);
+
+    alto_storage = at->nnz * (sizeof(ValType) + (alto_bits_min >> 3));
     printf("Alto-opt format storage:    %g Bytes\n", alto_storage);
-    
+
     {//Dilation & shifting.
         int level = 0, shift = 0, inc = 1;
 
@@ -669,12 +731,12 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
             std::sort(mode_bits, mode_bits + nmode, [](auto& a, auto& b) { return a.bits < b.bits; });
         else if(mo == LONG_FIRST)
             std::sort(mode_bits, mode_bits + nmode, [](auto& a, auto& b) { return a.bits > b.bits; });
-          
+
         if (po == MSB_FIRST) {
             shift = alto_bits_min - 1;
             inc = -1;
         }
-        
+
         bool done;
         do {
             done = true;
@@ -688,7 +750,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
             }
             ++level;
         } while (!done);
-        
+
         assert(level == (max_num_bits+1));
         assert(po == MSB_FIRST ? (shift == -1) : (shift == alto_bits_min));
     }
@@ -696,7 +758,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
     for (int n = 0; n < nmode; ++n) {
         at->mode_masks[n] = ALTO_MASKS[n];
         alto_mask |= ALTO_MASKS[n];
-#ifdef ALTO_DEBUG        
+#ifdef ALTO_DEBUG
         printf("ALTO_MASKS[%d] = 0x%llx\n", n, ALTO_MASKS[n]);
 #endif
     }
@@ -711,7 +773,7 @@ setup_packed_alto(AltoTensor<LIT>* at, PackOrder po, ModeOrder mo)
 template <typename LIT>
 struct APair {
     LIT idx;
-    FType val;
+    ValType val;
 };
 
 template <typename LIT>
@@ -771,7 +833,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
 
         //at->prtn_ptr[p] = start_i;
         at->prtn_ptr[p + 1] = end_i;
-        
+
         // Find the subspace of a given partition.
 #ifdef OPT_ALTO
         if (start_i != end_i) {
@@ -780,7 +842,7 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
 #ifdef ALTO_DEBUG
             //printf("p%d: start alto_idx[%llu]=0x%llx\n", p, start_i, alto_idx_s);
             //printf("p%d: end  alto_idx[%llu]=0x%llx\n", p, end_i-1, alto_idx_e);
-#endif 
+#endif
             LIT mask = at->idx[start_i] ^ at->idx[end_i - 1];
             int prefix_bits = clz(mask) - ((sizeof(LIT) * 8) - alto_bits);
 
@@ -789,15 +851,15 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
             }
             at->prtn_id[p] = (LPType)((at->idx[start_i] >> (alto_bits - prefix_bits)) & at->prtn_mask[p]);
 
-#ifdef ALTO_DEBUG            
+#ifdef ALTO_DEBUG
             //printf("p%d: mask=0x%lx, id=0x%lx\n", p, at->prtn_mask[p], at->prtn_id[p]);
 #endif
             for (int n = 0; n < nmode; ++n) {
                 mask = ((ALTO_MASKS[n] >> (alto_bits - prefix_bits)) & at->prtn_mask[p]);
                 at->prtn_mode_masks[p * nmode + n] = mask;
-#ifdef ALTO_DEBUG                
+#ifdef ALTO_DEBUG
                 //printf("p%d: mode%d: prefix_mask=0x%llx\n", p, n+1, mask);
-#endif                
+#endif
             }
         }
         else { //empty partition
@@ -805,9 +867,9 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
         }
 #endif
     }// omp parallel
-    
-    // O(storage requirements) for conflict resolution, using dense/direct-access storage, 
-    // can be computed in constant time from the subspace id. The code below finds tighter bounds 
+
+    // O(storage requirements) for conflict resolution, using dense/direct-access storage,
+    // can be computed in constant time from the subspace id. The code below finds tighter bounds
     // using interval analysis in linear time (where nnz>> nptrn>> nmode).
     #pragma omp parallel for schedule(static,1) proc_bind(close)
     for (int p = 0; p < nprtn; ++p) {
@@ -835,6 +897,13 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
             at->prtn_intervals[p * nmode + n].stop = fib[n].stop;
         }
     }
+#ifdef ALTO_DEBUG
+    for (int p = 0; p < nprtn; ++p) {
+        for (int n = 0; n < nmode; ++n) {
+            printf("Prt %d: %llu - %llu\n", p, at->prtn_intervals[p * nmode + n].start, at->prtn_intervals[p * nmode + n].stop);
+        }
+    }
+#endif
 
 #ifdef TEST_ALTO
     // Checking conflicts using interval intersections.
@@ -864,13 +933,13 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
     //local buffer
     LIT ALTO_CR_MASKS[MAX_NUM_MODES];
     LIT alto_cr_mask = 0;
-    
+
     int free_bits = (sizeof(LIT) * 8) - alto_bits;
     printf("ALTO: free_bits = %d\n", free_bits);
-    //short int is large enough to support an appropriate number of partitions. 
+    //short int is large enough to support an appropriate number of partitions.
     short int** out_fibs = (short int**)AlignedMalloc(nmode * sizeof(short int*));
     assert(out_fibs);
-    
+
     //Setup CR bit masks.
     for (int n = 0; n < nmode; ++n) {
         IType num_fibs = at->dims[n];
@@ -880,9 +949,10 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
             //if(free_bits){
             at->cr_masks[n] = (LIT)0x1 << ((sizeof(LIT) * 8) - free_bits);
             alto_cr_mask |= at->cr_masks[n];
-#ifdef ALTO_DEBUG            
+#ifdef ALTO_DEBUG
             printf("ALTO: cr_masks[%d]=0x%llx\n", n, at->cr_masks[n]);
-#endif            
+            printf("      %llu fibers\n", num_fibs);
+#endif
             out_fibs[n] = (short int*)AlignedMalloc(num_fibs * sizeof(short int));
         #pragma omp parallel for
             for (IType i = 0; i < num_fibs; ++i) {
@@ -893,10 +963,10 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
         ALTO_CR_MASKS[n] = at->cr_masks[n];
     }//modes
     at->alto_cr_mask = alto_cr_mask;
-#ifdef ALTO_DEBUG    
+#ifdef ALTO_DEBUG
     printf("ALTO: alto_cr_mask=0x%llx\n", alto_cr_mask);
 #endif
-    
+
     if (alto_cr_mask) {
         //Find conflicting fibers.
         #pragma omp parallel for schedule(static,1) proc_bind(close)
@@ -918,13 +988,13 @@ prtn_alto(AltoTensor<LIT>* at, int nprtn)
                             if ((old == p+1) || (old == -1))
                                 done = true;
                             else if (old > 0)
-                                desired = -1; // external                           
-                        } while (!done);   
+                                desired = -1; // external
+                        } while (!done);
                     }
                 } //modes
             } //nnz
         } //prtns
-        
+
         //Set cr_bits.
         #pragma omp parallel for schedule(static,1) proc_bind(close)
         for (int p = 0; p < nprtn; ++p) {
@@ -970,18 +1040,18 @@ mttkrp_alto_atomic(int const target_mode, FType** factors, const AltoTensor<LIT>
         for (int n = 0; n < nmode; ++n) {
             ALTO_MASKS[n] = at->mode_masks[n];
         }
-        
+
         //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
         //assert(row);
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
-        FType* const vals = at->vals;
+        ValType* const vals = at->vals;
         IType const nnz_s = at->prtn_ptr[p];
         IType const nnz_e = at->prtn_ptr[p + 1];
 
         for (IType i = nnz_s; i < nnz_e; ++i) {
-            FType const val = vals[i];
+            ValType const val = vals[i];
             LIT const alto_idx = idx[i];
 
             #pragma omp simd
@@ -1038,12 +1108,12 @@ mttkrp_alto_atomic_cr(int const target_mode, FType** factors, const AltoTensor<L
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
-        FType* const vals = at->vals;
+        ValType* const vals = at->vals;
         IType const nnz_s = at->prtn_ptr[p];
         IType const nnz_e = at->prtn_ptr[p + 1];
 
         for (IType i = nnz_s; i < nnz_e; ++i) {
-            FType const val = vals[i];
+            ValType const val = vals[i];
             LIT const alto_idx = idx[i];
 
             #pragma omp simd
@@ -1108,12 +1178,12 @@ mttkrp_alto_lock_cr(int const target_mode, FType** factors, IType const rank, co
         FType row[rank]; //Allocate an auto array of variable size.
 
         LIT* const idx = at->idx;
-        FType* const vals = at->vals;
+        ValType* const vals = at->vals;
         IType const nnz_s = at->prtn_ptr[p];
         IType const nnz_e = at->prtn_ptr[p + 1];
 
         for (IType i = nnz_s; i < nnz_e; ++i) {
-            FType const val = vals[i];
+            ValType const val = vals[i];
             LIT const alto_idx = idx[i];
 
             #pragma omp simd
@@ -1184,12 +1254,12 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             memset(out, 0, (stop - offset + 1) * rank * sizeof(FType));
 
             LIT* const idx = at->idx;
-            FType* const vals = at->vals;
+            ValType* const vals = at->vals;
             IType const nnz_s = at->prtn_ptr[p];
             IType const nnz_e = at->prtn_ptr[p + 1];
 
             for (IType i = nnz_s; i < nnz_e; ++i) {
-                FType const val = vals[i];
+                ValType const val = vals[i];
                 LIT const alto_idx = idx[i];
 
                 #pragma omp simd
@@ -1204,7 +1274,7 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
 #else
                         IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]) * rank;
 #endif
-                        #pragma omp simd 
+                        #pragma omp simd
                         for (IType r = 0; r < rank; ++r) {
                             row[r] *= factors[m][row_id + r];
                         }
@@ -1245,6 +1315,103 @@ mttkrp_alto_da_mem_pull(int const target_mode, FType** factors, const AltoTensor
             } //prtns
         } //ofibs
     } // omp parallel
+}
+
+template <typename LIT, typename ModeT, typename RankT>
+static inline void
+mttkrp_alto_op_sched(int const target_mode, FType** factors, const AltoTensor<LIT>* const at, ModeT nmode, RankT rank)
+{
+    assert(at->nmode == nmode);
+    int const nprtn = at->nprtn;
+
+    #pragma omp parallel for schedule(static,1) proc_bind(close)
+    for (int p = 0; p < nprtn; ++p) {
+        //local buffer
+        LIT ALTO_MASKS[MAX_NUM_MODES];
+        for (int n = 0; n < nmode; ++n) {
+            ALTO_MASKS[n] = at->mode_masks[n];
+        }
+
+        //FType *row = (FType*)AlignedMalloc(rank * sizeof(FType));
+        //assert(row);
+        FType accum[rank]; //Allocate an auto array of variable size.
+        FType row[rank]; //Allocate an auto array of variable size.
+        memset(accum, 0, rank * sizeof(FType));
+
+        LIT* const idx = at->idx;
+        ValType* const vals = at->vals;
+        IType* const mode_oidx = at->oidx[target_mode];
+        IType const nnz_s = at->prtn_ptr[p];
+        IType const nnz_e = at->prtn_ptr[p + 1];
+        IType last_row;
+ #ifndef ALT_PEXT
+        last_row = pext(idx[mode_oidx[nnz_s]], ALTO_MASKS[target_mode]);
+#else
+        last_row = pext(idx[mode_oidx[nnz_s]], ALTO_MASKS[target_mode], at->mode_pos[target_mode]);
+#endif
+        bool is_boundry = true;
+
+        for (IType i = nnz_s; i < nnz_e; ++i) {
+            ValType const val = vals[mode_oidx[i]];
+            LIT const alto_idx = idx[mode_oidx[i]];
+
+            #pragma omp simd
+            for (IType r = 0; r < rank; ++r) {
+                row[r] = val;
+            }
+
+            for (int m = 0; m < nmode; ++m) {
+                if (m != target_mode) { //input fibers
+#ifndef ALT_PEXT
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m]);
+#else
+                    IType const row_id = pext(alto_idx, ALTO_MASKS[m], at->mode_pos[m]);
+#endif
+                    #pragma omp simd
+                    for (IType r = 0; r < rank; r++) {
+                        row[r] *= factors[m][row_id * rank + r];
+                    }
+                }
+            }
+
+            //Output fibers
+#ifndef ALT_PEXT
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode]);
+#else
+            IType const row_id = pext(alto_idx, ALTO_MASKS[target_mode], at->mode_pos[target_mode]);
+#endif
+            // flush when index changes
+            if(last_row != row_id) {
+                if (is_boundry) { // use atomics
+                    for (IType r = 0; r < rank; ++r) {
+                        #pragma omp atomic update
+                        factors[target_mode][last_row * rank + r] += accum[r];
+                    }
+                    is_boundry = false;
+                } else {
+                    #pragma omp simd
+                    for (IType r = 0; r < rank; ++r) {
+                        factors[target_mode][last_row * rank + r] += accum[r];
+                    }
+                }
+                memset(accum, 0, rank * sizeof(FType));
+            } // index changes
+            last_row = row_id;
+
+            #pragma omp simd
+            for (IType r = 0; r < rank; ++r) {
+                accum[r] += row[r];
+            }
+
+            // write the very last updates
+            if (i == nnz_e - 1) {
+                for (IType r = 0; r < rank; ++r) {
+                    #pragma omp atomic update
+                    factors[target_mode][last_row * rank + r] += accum[r];
+                }
+            }
+        } //nnzs
+    } //prtns
 }
 
 #endif

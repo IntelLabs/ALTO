@@ -23,9 +23,10 @@ typedef enum
 void CreateKruskalModel(int mode, IType *dim, IType rank, KruskalModel **M_);
 
 void KruskalModelNormalize(KruskalModel *M);
+void KruskalModelNormalizeMode(KruskalModel *M, int n);
 
 void KruskalModelNorm(KruskalModel* M,
-                         IType mode, 
+                         IType mode,
                          mat_norm_type which,
                          FType ** scratchpad);
 
@@ -37,7 +38,10 @@ void DestroyKruskalModel(KruskalModel *M);
 
 void PrintKruskalModel(KruskalModel *M);
 
-void RedistributeLambda (KruskalModel *M, int n);
+void RedistributeLambda(KruskalModel *M, int n);
 
 double KruskalTensorFit();
+
+void update_gram(FType* gram, KruskalModel* M, int mode);
+
 #endif // KRUSKAL_MODEL_HPP_

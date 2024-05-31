@@ -39,6 +39,15 @@ Currently, `MKL` or any library that conforms to the BLAS interface (tested with
 #### Length of ALTO mask
 Set `ALTO_MASK_LENGTH` either to `64` or `128` for a 64-bit or 128-bit ALTO-mask, respectively.
 
+#### Data types
+By default, ALTO uses 64-bit integers as index type and double precision as kruskal tensor and sparse tensor value types.
+You can adjust these data types the following way:
+| variable name   | description               | options          |
+|-----------------|---------------------------|------------------|
+| `ALTO_IDX_TYPE` | index type                | `INT32`, `INT64` |
+| `ALTO_FP_TYPE`  | kruskal tensor value type | `FP32` (float), `FP64` (double) |
+| `ALTO_VAL_TYPE` | sparse tensor value type  | `INT32`, `INT64`, `FP_TYPE` (same as `ALTO_FP_TYPE`) |
+
 #### Mode and Rank Specialization
 The build system is setup so that certain mode and rank combinations are optimized at compile time.  To specify which modes and ranks are optimized, set MODES_SPECIALIZED and RANKS_SPECIALIZED to a comma-separated list of the desired values. To disable either mode or rank specialization, use 0 as the value to be specialized.
 
@@ -65,6 +74,7 @@ For getting specific information about the memory access patterns in particular 
 * Jesmin Jahan Tithi (jesmin.jahan.tithi@intel.com)
 * Jeewhan Choi (jeec@uoregon.edu)
 * Yongseok Soh (ysoh@uoregon.edu)
+* S. Isaac Geronimo Anderson (igeroni3@uoregon.edu)
 
 ## Licensing
 ALTO is released under the MIT License. Please see the 'LICENSE' file for details.

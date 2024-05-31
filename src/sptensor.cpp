@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include <math.h>
 #include <assert.h>
 #include <time.h>
@@ -75,7 +76,8 @@ void read_tns_dims(
   FILE* fin,
   IType* num_modes,
   IType* nnz,
-  IType** dims
+  IType** dims,
+  IType zero_based
 )
 {
   // count the number of modes
@@ -113,7 +115,7 @@ void read_tns_dims(
     if(nread > 1 && line[0] != '#') {
       char* ptr = line;
       for(IType i = 0; i < nmodes; i++) {
-        IType index = strtoull(ptr, &ptr, 10);
+        IType index = strtoull(ptr, &ptr, 10) + zero_based;
         if(index > tmp_dims[i]) {
           tmp_dims[i] = index;
         }
@@ -134,8 +136,9 @@ void read_tns_data(
   FILE* fin,
   SparseTensor* tensor,
   IType num_modes,
-  IType nnz)
-{
+  IType nnz,
+  IType one_based
+){
   IType tmp_nnz = 0;
   ssize_t nread;
   char* line = NULL;
@@ -146,7 +149,7 @@ void read_tns_data(
     if(nread > 1 && line[0] != '#') {
       char* ptr = line;
       for(IType i = 0; i < num_modes; i++) {
-        tensor->cidx[i][tmp_nnz] = (IType) strtoull(ptr, &ptr, 10) - 1;
+        tensor->cidx[i][tmp_nnz] = (IType) strtoull(ptr, &ptr, 10) - one_based;
       }
       tensor->vals[tmp_nnz] = (FType) strtod(ptr, &ptr);
       ++tmp_nnz;
@@ -162,11 +165,13 @@ void read_tns_data(
 void ImportSparseTensor(
   const char* file_path,
   FileFormat f,
-  SparseTensor** X_
+  SparseTensor** X_,
+  IType zero_based
 )
 {
   FILE* fp = fopen(file_path, "r");
   assert(fp != NULL);
+  IType one_based = zero_based ? 0 : 1;
 
   IType nnz = 0;
   IType nmodes = 0;
@@ -176,7 +181,7 @@ void ImportSparseTensor(
 
   if (f == TEXT_FORMAT) {
     // read dims and nnz info from file
-    read_tns_dims(fp, &nmodes, &nnz, &dims);
+    read_tns_dims(fp, &nmodes, &nnz, &dims, zero_based);
 
     // allocate memory to the data structures
     SparseTensor* ten = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));
@@ -199,34 +204,46 @@ void ImportSparseTensor(
         ten->dims[i] = dims[i];
     }
     ten->nnz = nnz;
-    read_tns_data(fp, ten, nmodes, nnz);
+    read_tns_data(fp, ten, nmodes, nnz, one_based);
 
     *X_ = ten;
 
   } else if (f == BINARY_FORMAT) {
+    IType numobjs = 0;
     // first read the number of modes
     nmodes = 0;
-    fread(&nmodes, sizeof(IType), 1, fp);
+    numobjs = (IType) fread(&nmodes, sizeof(IType), 1, fp);
     assert(nmodes <= MAX_NUM_MODES);
+    assert(numobjs == (IType) 1);
 
     // use this information to read the dimensions of the tensor
     IType* dims = (IType*) AlignedMalloc(sizeof(IType) * nmodes);
     assert(dims);
-    fread(dims, sizeof(IType), nmodes, fp);
+    numobjs = (IType) fread(dims, sizeof(IType), nmodes, fp);
+    assert(numobjs == nmodes);
     // read the nnz
     nnz = 0;
-    fread(&nnz, sizeof(IType), 1, fp);
+    numobjs = (IType) fread(&nnz, sizeof(IType), 1, fp);
+    assert(numobjs == (IType) 1);
+    assert(nnz > 0);
+#ifdef IDX_TYPE32
+    assert(nnz <= UINT_MAX);
+#else
+    assert(nnz <= ULLONG_MAX);
+#endif
     // use this information to read the index and the values
     IType** cidx = (IType**) AlignedMalloc(sizeof(IType*) * nmodes);
     assert(cidx);
     for(IType i = 0; i < nmodes; i++) {
         cidx[i] = (IType*) AlignedMalloc(sizeof(IType) * nnz);
         assert(cidx[i]);
-        fread(cidx[i], sizeof(IType), nnz, fp);
+        numobjs = (IType) fread(cidx[i], sizeof(IType), nnz, fp);
+        assert(numobjs == nnz);
     }
     FType* vals = (FType*) malloc(sizeof(FType) * nnz);
     assert(vals);
-    fread(vals, sizeof(FType), nnz, fp);
+    numobjs = (IType) fread(vals, sizeof(FType), nnz, fp);
+    assert(numobjs == nnz);
 
     // create the sptensor
     SparseTensor* ten = (SparseTensor*) AlignedMalloc(sizeof(SparseTensor));

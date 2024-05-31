@@ -13,6 +13,7 @@
 #include "common.hpp"
 #include "alto.hpp"
 #include "cpd.hpp"
+#include "apr.hpp"
 
 #include <unistd.h>
 #include <sys/resource.h>
@@ -24,7 +25,9 @@
 #include <string.h>
 
 #include <sched.h>
-#include <numaif.h>
+#ifdef memtrace
+  #include <numaif.h>
+#endif
 
 #if ALTO_MASK_LENGTH == 64
     typedef unsigned long long LIType;
@@ -42,7 +45,8 @@
 	exit(-1);							\
 } while (0)
 
-void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
+void BenchmarkAlto(SparseTensor* X, Model model, int max_iters, int max_inner,
+                   FType kappa_tol, FType kappa, IType rank,
                    IType seed, int target_mode, int num_partitions);
 
 void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
@@ -69,21 +73,24 @@ const struct option long_opt[] = {
     {"input",          1, NULL, 'i'},
     {"output",         1, NULL, 'o'},
     {"bin",            1, NULL, 'b'},
+    {"model",          1, NULL, 'l'},
     {"rank",           1, NULL, 'r'},
     {"max-iter",       1, NULL, 'm'},
+    {"max-inner",      1, NULL, 'n'},
     {"seed",           1, NULL, 'x'},
     {"dims",           1, NULL, 'd'},
     {"target-mode",    1, NULL, 't'},
     {"sparsity",       1, NULL, 's'},
     {"epsilon",        1, NULL, 'e'},
     {"file",           1, NULL, 'f'},
+    {"zero-based",     0, NULL, 'z'},
     {"check",          0, NULL, 'c'},
     {"bench",          0, NULL, 'p'},
     {NULL,             0, NULL,    0}
 };
 
-const char* const short_opt = "hvi:o:b:r:m:x:d:t:s:e:f:cp";
-const char* version_info = "0.1.1";
+const char* const short_opt = "hvi:o:b:l:r:m:n:x:d:t:s:e:f:zcp";
+const char* version_info = "0.1.2";
 
 int main(int argc, char** argv)
 {
@@ -96,20 +103,35 @@ int main(int argc, char** argv)
 	double t_create = 0.0;
 	double t_cpd = 0.0;
 
+	// Common to all models
 	int max_iters = 10;
 	IType rank = 16;
+	double epsilon = 1e-5;
+	int target_mode = -1;
 	std::vector<IType> dims;
 	int nmodes = 0;
-	int target_mode = -1;
+
+	// Common to APR
+	int max_inner = 10;
+	FType eps_div_zero = 1.0e-10;
+	FType kappa_tol = 1.0e-10;
+	FType kappa = 1.0e-2;
+
+	// Tensor I/O
 	std::string text_file;
 	std::string text_file_out;
 	std::string binary_file;
+    IType zero_based = 0;
+
+	// Generating test tensor
 	double sparsity = 0.1;
-	double epsilon = 1e-5;
-	int seed = time(NULL);
+
+	int seed = (int) time(NULL);
 	int save_to_file = 0;
     bool do_check = false;
-    bool do_mttkrp_bench = false;
+    bool do_bench = false;
+    std::string model_string;
+    Model model;
 
 	int c = 0;
 	while ((c = getopt_long(argc, argv, short_opt, long_opt, NULL)) != -1) {
@@ -129,28 +151,51 @@ int main(int argc, char** argv)
 		case 'b':
 			binary_file = std::string(optarg);
 			break;
+		case 'l':
+            // choose the type of model to compute (ALS, APR, etc.)
+			model_string = std::string(optarg);
+            if(model_string == "ALS" || model_string == "als") {
+				model = ALS;
+            } else if(model_string == "APR" || model_string == "apr") {
+				model = APR;
+            } else {
+				fprintf(stderr, "Invalid -model: %s.\n", optarg);
+			    return -1;
+            }
+			break;
 		case 'r':
 			rank = (IType)atoll(optarg);
 			if (rank < 1) {
 				fprintf(stderr, "Invalid -rank: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'm':
 			max_iters = atoi(optarg);
-			if (max_iters < 0) {
+			if (max_iters <= 0) {
 				fprintf(stderr, "Invalid -max-iter: %s.\n", optarg);
+			    return -1;
+			}
+			break;
+		case 'n':
+			max_inner = atoi(optarg);
+			if (max_iters <= 0) {
+				fprintf(stderr, "Invalid -max-inner: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'x':
 			seed = atoi(optarg);
 			if (seed < 0) {
 				fprintf(stderr, "Invalid -seed: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'd':
 			dims = ParseDimensions(optarg, &nmodes);
-                        if (dims.empty()) {
+            if (dims.empty()) {
 				fprintf(stderr, "Invalid -dims: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 't':
@@ -164,25 +209,31 @@ int main(int argc, char** argv)
 			sparsity = atof(optarg);
 			if (sparsity <= 0.0) {
 				fprintf(stderr, "Invalid -sparsity: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'e':
 			epsilon = atof(optarg);
 			if (epsilon <= 0.0) {
 				fprintf(stderr, "Invalid -epsilon: %s.\n", optarg);
+			    return -1;
 			}
 			break;
 		case 'f':
 			save_to_file = atoi(optarg);
 			if (save_to_file < 0) {
 				fprintf(stderr, "Invalid -file: %s.\n", optarg);
+			    return -1;
 			}
 			break;
+        case 'z':
+            zero_based = 1;
+            break;
         case 'c':
             do_check = true;
             break;
         case 'p':
-            do_mttkrp_bench = true;
+            do_bench = true;
             break;
 		case ':':
 			fprintf(stderr, "Option -%c requires an argument.\n", optopt);
@@ -205,7 +256,7 @@ int main(int argc, char** argv)
 	SparseTensor* X = NULL;
 	if (!binary_file.empty()) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(binary_file.c_str(), BINARY_FORMAT, &X);
+		ImportSparseTensor(binary_file.c_str(), BINARY_FORMAT, &X, zero_based);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading binary file", t_read);
@@ -220,7 +271,7 @@ int main(int argc, char** argv)
 	}
 	else if (!text_file.empty()) {
 		BEGIN_TIMER(&ticks_start);
-		ImportSparseTensor(text_file.c_str(), TEXT_FORMAT, &X);
+		ImportSparseTensor(text_file.c_str(), TEXT_FORMAT, &X, zero_based);
 		END_TIMER(&ticks_end);
 		ELAPSED_TIME(ticks_start, ticks_end, &t_read);
 		PRINT_TIMER("Reading text file", t_read);
@@ -260,7 +311,7 @@ int main(int argc, char** argv)
         RunAltoCheck(X, rank, seed, target_mode, omp_get_max_threads());
         return 0;
     }
-    if (do_mttkrp_bench) {
+    if (do_bench) {
 #ifdef memtrace
 	printf("After initialization\n");
 	long long post_n0, post_n1;
@@ -269,7 +320,7 @@ int main(int argc, char** argv)
 	printf("memory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
     	// adjust target mode and number of partitions accordingly
-	    BenchmarkAlto(X, max_iters, rank, seed, target_mode, omp_get_max_threads());
+	    BenchmarkAlto(X, model, max_iters, max_inner, kappa_tol, kappa, rank, seed, target_mode, omp_get_max_threads());
 #ifdef memtrace
 	printf("After compute\n");
 
@@ -288,6 +339,7 @@ int main(int argc, char** argv)
 	KruskalModelRandomInit(M, (unsigned int)seed);
 	// PrintKruskalModel(M);
 
+    // Reference naive COO CPD
 	/*BEGIN_TIMER(&ticks_start);
 	cpd(X, M, max_iters, epsilon);
 	END_TIMER(&ticks_end);
@@ -300,23 +352,38 @@ int main(int argc, char** argv)
 	AltoTensor<LIType>* AT;
 	int num_partitions = omp_get_max_threads();
 	create_alto(X, &AT, num_partitions);
+	DestroySparseTensor(X);
 
-    BEGIN_TIMER(&ticks_start);
-    cpd_alto(AT, M, max_iters, epsilon);
-    // cpd(X, M, max_iters, epsilon);
-    END_TIMER(&ticks_end);
-    ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
-    PRINT_TIMER("CPD (ALTO)", t_cpd);
+	BEGIN_TIMER(&ticks_start);
+	if(model == ALS) {
+    	cpd_alto(AT, M, max_iters, epsilon);
+    	// cpd(X, M, max_iters, epsilon);
+	} else if(model == APR) {
+		// cp_apr_mu_alto(X, M, max_iters, max_inner, epsilon, eps_div_zero,
+						// kappa_tol, kappa);
+		// cp_apr_mu_alto_otf(X, M, max_iters, max_inner, epsilon, eps_div_zero,
+							// kappa_tol, kappa);
+		cp_apr_alto(AT, M, max_iters, max_inner, epsilon, eps_div_zero,
+					kappa_tol, kappa, false);
+
+	} else {
+		fprintf(stderr, "Invalid model\n");
+	}
+	END_TIMER(&ticks_end);
+	ELAPSED_TIME(ticks_start, ticks_end, &t_cpd);
+    if(model == ALS) {
+		PRINT_TIMER("ALS (ALTO)", t_cpd);
+	} else if(model == APR) {
+		PRINT_TIMER("APR (ALTO)", t_cpd);
+	}
 
     // Cleanup
-	DestroySparseTensor(X);
 	DestroyKruskalModel(M);
-	destroy_alto(AT);
-
+	//destroy_alto(AT);
 	return 0;
 }
 
-void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
+void BenchmarkAlto(SparseTensor* X, Model model, int max_iters, int max_inner, FType kappa_tol, FType kappa, IType rank,
                    IType seed, int target_mode, int num_partitions)
 {
 	double wtime_s, wtime;
@@ -340,22 +407,24 @@ void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
 	post_n1 = node_mem(1, "Active:");
 	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
-	FType** factors = (FType**)AlignedMalloc(X->nmodes * sizeof(FType*));
+    FType** factors = (FType**)AlignedMalloc(X->nmodes * sizeof(FType*));
 	assert(factors);
-	for (int m = 0; m < X->nmodes; m++) {
-        factors[m] = (FType*)AlignedMalloc(X->dims[m] * rank * sizeof(FType));
-		assert(factors[m]);
-	}
-	// Initialize factors
-	for (int m = 0; m < X->nmodes; ++m) {
-		ParMemcpy(factors[m], M->U[m], X->dims[m] * rank * sizeof(FType));
-	}
+    if (model == ALS) {
+    	for (int m = 0; m < X->nmodes; m++) {
+            factors[m] = (FType*)AlignedMalloc(X->dims[m] * rank * sizeof(FType));
+		    assert(factors[m]);
+    	}
+	    // Initialize factors
+    	for (int m = 0; m < X->nmodes; ++m) {
+	    	ParMemcpy(factors[m], M->U[m], X->dims[m] * rank * sizeof(FType));
+    	}
 #ifdef memtrace
-	printf("After factors allocation \n");
-	post_n0 = node_mem(0, "Active:");
-	post_n1 = node_mem(1, "Active:");
-	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	    printf("After factors allocation \n");
+	    post_n0 = node_mem(0, "Active:");
+	    post_n1 = node_mem(1, "Active:");
+	    printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
+    }
 	// ---------------------------------------------------------------- //
 	// Create ALTO tensor from COO
 	AltoTensor<LIType>* AT;
@@ -369,68 +438,81 @@ void BenchmarkAlto(SparseTensor* X, int max_iters, IType rank,
 	post_n1 = node_mem(1, "Active:");
 	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
-    DestroyKruskalModel(M);
     DestroySparseTensor(X);
+    if (model == APR) {
+        cp_apr_alto(AT, M, max_iters, max_inner, 0.0, 0.0, kappa_tol, kappa, true);
+    }
+    else {
+        DestroyKruskalModel(M);
 #ifdef memtrace
-	printf("After deletion of SparseTensor\n");
-	post_n0 = node_mem(0, "Active:");
-	post_n1 = node_mem(1, "Active:");
-	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	    printf("After deletion of SparseTensor\n");
+	    post_n0 = node_mem(0, "Active:");
+	    post_n1 = node_mem(1, "Active:");
+	    printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
-	// set up OpenMP locks
-    omp_lock_t* writelocks = NULL;
-	//IType max_mode_len = 0;
-	//for (IType i = 0; i < M->mode; ++i) {
-	//	if (max_mode_len < M->dims[i]) {
-	//		max_mode_len = M->dims[i];
-	//	}
-	//}
-	//omp_lock_t* writelocks = (omp_lock_t*)AlignedMalloc(sizeof(omp_lock_t) *
-	//	max_mode_len);
-	//assert(writelocks);
-	//for (IType i = 0; i < max_mode_len; ++i) {
-	//	omp_init_lock(&(writelocks[i]));
-	//}
-	FType** ofibs = NULL;
-	create_da_mem(target_mode, rank, AT, &ofibs);
+        // set up OpenMP locks
+        omp_lock_t* writelocks = NULL;
+	    //IType max_mode_len = 0;
+	    //for (IType i = 0; i < M->mode; ++i) {
+	    //	if (max_mode_len < M->dims[i]) {
+	    //		max_mode_len = M->dims[i];
+	    //	}
+	    //}
+	    //omp_lock_t* writelocks = (omp_lock_t*)AlignedMalloc(sizeof(omp_lock_t) *
+	    //	max_mode_len);
+	    //assert(writelocks);
+	    //for (IType i = 0; i < max_mode_len; ++i) {
+	    //	omp_init_lock(&(writelocks[i]));
+	    //}
+	    FType** ofibs = NULL;
+	    create_da_mem(target_mode, rank, AT, &ofibs);
 
 #ifdef memtrace
-	printf("After create_da_mem \n");
-	post_n0 = node_mem(0, "Active:");
-	post_n1 = node_mem(1, "Active:");
-	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	    printf("After create_da_mem \n");
+	    post_n0 = node_mem(0, "Active:");
+	    post_n1 = node_mem(1, "Active:");
+	    printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
-    // warmup
-	if (target_mode == -1) {
-		for (int m = 0; m < AT->nmode; ++m) {
-			mttkrp_alto_par(m, factors, rank, AT, writelocks, ofibs);
-		}
-	} else {
-		 mttkrp_alto_par(target_mode, factors, rank, AT, writelocks, ofibs);
-	}
-	// Do ALTO mttkrp
-	wtime_s = omp_get_wtime();
-	for (int i = 0; i < max_iters; ++i) {
+        // warmup
 		if (target_mode == -1) {
 			for (int m = 0; m < AT->nmode; ++m) {
 				mttkrp_alto_par(m, factors, rank, AT, writelocks, ofibs);
 			}
-		}
-		else {
+		} else {
 			mttkrp_alto_par(target_mode, factors, rank, AT, writelocks, ofibs);
 		}
-	}
-	wtime = omp_get_wtime() - wtime_s;
-	printf("ALTO runtime:   %f\n", wtime);
+	    // Do ALTO mttkrp
+	    wtime_s = omp_get_wtime();
+	    for (int i = 0; i < max_iters; ++i) {
+	    	if (target_mode == -1) {
+	    		for (int m = 0; m < AT->nmode; ++m) {
+	    			mttkrp_alto_par(m, factors, rank, AT, writelocks, ofibs);
+	    		}
+	    	}
+	    	else {
+	    		mttkrp_alto_par(target_mode, factors, rank, AT, writelocks, ofibs);
+	    	}
+	    }
+	    wtime = omp_get_wtime() - wtime_s;
+	    printf("ALTO runtime:   %f\n", wtime);
+	    destroy_da_mem(AT, ofibs, rank, target_mode);
+    }
 #ifdef memtrace
-	printf("After mttkrp_alto_par \n");
-	post_n0 = node_mem(0, "Active:");
-	post_n1 = node_mem(1, "Active:");
-	printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
+	    printf("After benchmark \n");
+	    post_n0 = node_mem(0, "Active:");
+	    post_n1 = node_mem(1, "Active:");
+	    printf("\nmemory N0 %lld B N1 %lld B\n", (post_n0 - pre_n0), (post_n1 - pre_n1));
 #endif
 	// ---------------------------------------------------------------- //
 	// Cleanup
-	destroy_da_mem(AT, ofibs, rank, target_mode);
+    for(int m = 0; m < AT->nmode; m++) {
+	    AlignedFree(factors[m]);
+	}
+	AlignedFree(factors);
+    if (model == APR) {
+        DestroyKruskalModel(M);
+        // DestroySparseTensor(X);
+    }
 	destroy_alto(AT);
 	// ---------------------------------------------------------------- //
 }
@@ -454,15 +536,19 @@ void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
     assert(truth);
     FType **factors = (FType **) AlignedMalloc(X->nmodes * sizeof(FType*));
     assert(factors);
+    FType **init_factors = (FType **) AlignedMalloc(X->nmodes * sizeof(FType*));
+    assert(init_factors);
     for(int m = 0; m < X->nmodes; m++) {
         truth[m] = (FType *) AlignedMalloc(X->dims[m] * rank * sizeof(FType));
         assert(truth[m]);
         factors[m] = (FType *) AlignedMalloc(X->dims[m] * rank * sizeof(FType));
         assert(factors[m]);
+        init_factors[m] = (FType *) AlignedMalloc(X->dims[m] * rank * sizeof(FType));
+        assert(init_factors[m]);
     }
     // Initialize factors
     for(int m = 0; m < X->nmodes; ++m) {
-        memcpy(factors[m], M->U[m], X->dims[m] * rank * sizeof(FType));
+        ParMemcpy(init_factors[m], M->U[m], X->dims[m] * rank * sizeof(FType));
     }
     // ---------------------------------------------------------------- //
     // Do base mttkrp
@@ -472,51 +558,69 @@ void RunAltoCheck(SparseTensor* X, IType rank, IType seed,
             printf("mode %d...", m);
             fflush(stdout);
             mttkrp(X, M, (IType) m);
+        	ParMemcpy(truth[m], M->U[m], X->dims[m] * rank * sizeof(FType));
+        	ParMemcpy(M->U[m], init_factors[m], X->dims[m] * rank * sizeof(FType)); //reset
         }
         printf("\n");
     } else {
         mttkrp(X, M, (IType) target_mode);
+		ParMemcpy(truth[target_mode], M->U[target_mode], X->dims[target_mode] * rank * sizeof(FType));
+		ParMemcpy(M->U[target_mode], init_factors[target_mode], X->dims[target_mode] * rank * sizeof(FType)); //reset
     }
     printf("   MTTKRP sequential base run done.\n");
-    // Copy to ground truth
-    for (int m = 0; m < X->nmodes; ++m) {
-        memcpy(truth[m], M->U[m], X->dims[m] * rank * sizeof(FType));
-    }
+
     // ---------------------------------------------------------------- //
     // Create ALTO tensor from COO
     printf("===Create ALTO tensors===\n");
     AltoTensor<LIType> *AT;
     create_alto(X, &AT, num_partitions);
+    DestroySparseTensor(X);
 
     FType **ofibs = NULL;
 	create_da_mem(target_mode, rank, AT, &ofibs);
 
     printf("===Run ALTO MTTKRP===\n");
-    wtime_s = omp_get_wtime();
     if (target_mode == -1) {
         for (int m = 0; m < AT->nmode; ++m) {
             printf("mode %d...", m);
             fflush(stdout);
-            mttkrp_alto_par(m, factors, rank, AT, NULL, ofibs);
+            mttkrp_alto_par(m, init_factors, rank, AT, NULL, ofibs);
+			ParMemcpy(factors[m], init_factors[m], AT->dims[m] * rank * sizeof(FType));
+			ParMemcpy(init_factors[m], M->U[m], AT->dims[m] * rank * sizeof(FType)); //reset
         }
         printf("\n");
     } else {
-        mttkrp_alto_par(target_mode, factors, rank, AT, NULL, ofibs);
+        mttkrp_alto_par(target_mode, init_factors, rank, AT, NULL, ofibs);
+		ParMemcpy(factors[target_mode], init_factors[target_mode], AT->dims[target_mode] * rank * sizeof(FType));
     }
-    wtime = omp_get_wtime() - wtime_s;
-    printf("   ALTO runtime: %f s\n", wtime);
+
     // ---------------------------------------------------------------- //
     // Verify ALTO
     printf("===Verify ALTO MTTKRP=== (target mode: %d)\n", target_mode);
-    for (int m = 0; m < AT->nmode; ++m) {
-        printf("mode %d: ", m);
-        fflush(stdout);
-        VerifyResult("mttkrp_alto", truth[m], factors[m], AT->dims[m] * rank);
-    }
+    if (target_mode == -1) {
+		for (int m = 0; m < AT->nmode; ++m) {
+			printf("mode %d: ", m);
+			fflush(stdout);
+			VerifyResult("mttkrp_alto", truth[m], factors[m], AT->dims[m] * rank);
+		}
+		printf("\n");
+    } else {
+		printf("mode %d: ", target_mode);
+		fflush(stdout);
+		VerifyResult("mttkrp_alto", truth[target_mode], factors[target_mode], AT->dims[target_mode] * rank);
+	}
     // ---------------------------------------------------------------- //
     // Cleanup
+	for(int m = 0; m < AT->nmode; m++) {
+		AlignedFree(truth[m]);
+		AlignedFree(factors[m]);
+		AlignedFree(init_factors[m]);
+	}
+	AlignedFree(truth);
+	AlignedFree(factors);
+	AlignedFree(init_factors);
 	destroy_da_mem(AT, ofibs, rank, target_mode);
-    DestroySparseTensor(X);
+	DestroyKruskalModel(M);
     destroy_alto(AT);
     // ---------------------------------------------------------------- //
 }
@@ -579,10 +683,9 @@ static std::vector<IType> ParseDimensions(char* argv, int* nmodes_)
 	while (end != std::string::npos) {
 		end = dstr.find(',', pos);
 
-                auto count = end == std::string::npos ? end : end - pos;
+        auto count = end == std::string::npos ? end : end - pos;
 		IType d = (IType)stoll(dstr.substr(pos, count));
-		if (d >= 0)
-			dims.push_back(d);
+		dims.push_back(d);
 		pos = end + 1;
 	}
 
@@ -604,16 +707,19 @@ static void Usage(char* call)
 	fprintf(stderr, "\t-i or --input        Input tensor file in text\n");
 	fprintf(stderr, "\t-o or --output       Output tensor to file\n");
 	fprintf(stderr, "\t-b or --bin          Input tensor file in binary\n");
+    fprintf(stderr, "\t-z or --zero-based   Assume input tensor is zero-based (default: one-based)\n");
+	fprintf(stderr, "\t-l or --model        CPD model (ALS or APR)\n");
 	fprintf(stderr, "\t-f or --file         Save tensor to another format\n");
 	fprintf(stderr, "\t-r or --rank         Rank\n");
-	fprintf(stderr, "\t-m or --max-iter     Maximum outter iterations\n");
+	fprintf(stderr, "\t-m or --max-iter     Maximum outer iterations\n");
+	fprintf(stderr, "\t-n or --max-inner    Maximum inner iterations\n");
 	fprintf(stderr, "\t-t or --target-mode  Target mode of tensor\n");
 	fprintf(stderr, "\t-e or --epsilon      Convergence criteria\n");
 	fprintf(stderr, "\t-x or --seed         Random value seed\n");
 	fprintf(stderr, "\t-d or --dims         Dimension lenghts (I,J,K)\n");
 	fprintf(stderr, "\t-s or --sparsity     Sparsity of generate tensor\n");
     fprintf(stderr, "\t-c or --check        Run ALTO (par) validation against cpd MTTKRP\n");
-    fprintf(stderr, "\t-p or --bench        Run ALTO (par) MTTKRP benchmark with the given CMD line options\n");
+    fprintf(stderr, "\t-p or --bench        Run ALTO benchmark mode based on the CPD model with the given CMD line options\n");
 }
 
 static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
@@ -627,16 +733,16 @@ static void PrintTensorInfo(IType rank, int max_iters, SparseTensor* X)
 		tmp *= dims[i];
 	}
 	double sparsity = ((double)nnz) / tmp;
-	fprintf(stderr, "# Modes         = %u\n", nmodes);
-	fprintf(stderr, "Rank            = %llu\n", rank);
-	fprintf(stderr, "Sparsity        = %f\n", sparsity);
-	fprintf(stderr, "Max iters       = %d\n", max_iters);
-	fprintf(stderr, "Dimensions      = [%llu", dims[0]);
+	fprintf(stdout, "# Modes         = %u\n", nmodes);
+	fprintf(stdout, "Rank            = %llu\n", rank);
+	fprintf(stdout, "Sparsity        = %f\n", sparsity);
+	fprintf(stdout, "Max iters       = %d\n", max_iters);
+	fprintf(stdout, "Dimensions      = [%llu", dims[0]);
 	for (int i = 1; i < nmodes; i++) {
-		fprintf(stderr, " X %llu", dims[i]);
+		fprintf(stdout, " X %llu", dims[i]);
 	}
-	fprintf(stderr, "]\n");
-	fprintf(stderr, "NNZ             = %llu\n", nnz);
+	fprintf(stdout, "]\n");
+	fprintf(stdout, "NNZ             = %llu\n", nnz);
 }
 
 #ifdef memtrace
