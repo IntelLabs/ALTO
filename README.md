@@ -1,6 +1,7 @@
 # ALTO
 ALTO is a template-based implementation of the Adaptive Linearized Tensor Order format for storing and processing sparse tensors. It performs key tensor decomposition operations along every mode (dimension) using a unified approach that works on a single tensor copy. The current implementation supports multi-core processors and it allows effortless specialization of tensor kernels not only for common tensor orders, but also for typical application features (such as the decomposition rank). The detailed algorithms are described in the following paper:
 * **ALTO: Adaptive Linearized Storage of Sparse Tensors**. Ahmed E. Helal, Jan Laukemann, Fabio Checconi, Jesmin Jahan Tithi, Teresa M. Ranadive, Fabrizio Petrini, Jeewhan Choi. In Proceedings of the ACM International Conference on Supercomputing (ICS), June 2021. [doi:10.1145/3447818.3461703](https://doi.org/10.1145/3447818.3461703). 
+* **Accelerating Sparse Tensor Decomposition Using Adaptive Linearized Representation**. Jan Laukemann, Ahmed E. Helal, S. Isaac Geronimo Anderson, Fabio Checconi, Yongseok Soh, Jesmin Jahan Tithi, Teresa M. Ranadive,  Brian J Gravelle, Fabrizio Petrini, Jeewhan Choi. In IEEE Transactions on Parallel and Distributed Systems, vol. 36, no. 5, pp. 1025-1041, May 2025.  [doi: 10.1109/TPDS.2025.3553092](https://doi.org/10.1109/TPDS.2025.3553092). 
 
 ## Getting started
 To compile the code, simply run `make` in the root directory. This will create the `cpd64` binary for running CANDECOMP/PARAFAC tensor decomposition (CPD) with a 64-bit ALTO mask. 
